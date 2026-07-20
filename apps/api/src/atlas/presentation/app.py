@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from atlas.config.settings import Settings, load_settings
+from atlas.observability.logging import configure_logging
 from atlas.presentation.composition import build_container, close_container
 from atlas.presentation.routes.system import router as system_router
 from atlas.shared.version import get_version
@@ -38,11 +39,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             omitted (the uvicorn factory path), process settings are read
             from the environment.
     """
+    resolved = settings if settings is not None else load_settings()
+    configure_logging(resolved.log_level)
     app = FastAPI(
         title="Atlas API",
         version=get_version(),
         lifespan=_lifespan,
     )
-    app.state.settings = settings if settings is not None else load_settings()
+    app.state.settings = resolved
     app.include_router(system_router)
     return app
