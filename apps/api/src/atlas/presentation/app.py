@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from atlas.config.settings import Settings, get_settings
+from atlas.config.settings import Settings, load_settings
 from atlas.presentation.routes.system import router as system_router
 from atlas.shared.version import get_version
 
@@ -47,6 +47,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=get_version(),
         lifespan=_lifespan,
     )
-    app.state.settings = settings if settings is not None else get_settings()
+    app.state.settings = settings if settings is not None else load_settings()
     app.include_router(system_router)
     return app
