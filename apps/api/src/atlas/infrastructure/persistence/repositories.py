@@ -4,6 +4,14 @@ Scoping contract (M03): every query is bounded by ``workspace_id`` in SQL —
 directly on `sources`, via joins for everything that hangs off a source.
 A wrong workspace id yields None/empty, never someone else's rows.
 Soft-deleted sources and documents are invisible to reads (docs/11 §1.4).
+
+Writes flush immediately: the Row classes deliberately define no ORM
+relationships (entities carry ids, not object graphs), so SQLAlchemy's
+unit-of-work cannot topologically sort inserts across tables — an
+unflushed add of a version and its chunks could reach the database in
+FK-violating order. Flushing in ``add``/``add_all`` pins statement order
+to call order and makes new rows visible to later queries in the same
+transaction. Commit remains the UoW's decision.
 """
 
 from collections.abc import Sequence
@@ -69,6 +77,7 @@ class SqlSourceRepository:
 
     async def add(self, source: Source) -> None:
         self._session.add(source_to_row(source))
+        await self._session.flush()
 
     async def save(self, source: Source) -> None:
         row = await self._session.get(SourceRow, source.id)
@@ -114,6 +123,7 @@ class SqlDocumentRepository:
 
     async def add(self, document: Document) -> None:
         self._session.add(document_to_row(document))
+        await self._session.flush()
 
     async def save(self, document: Document) -> None:
         row = await self._session.get(DocumentRow, document.id)
@@ -151,6 +161,7 @@ class SqlDocumentVersionRepository:
 
     async def add(self, version: DocumentVersion) -> None:
         self._session.add(version_to_row(version))
+        await self._session.flush()
 
     async def get(self, workspace_id: UUID, version_id: UUID) -> DocumentVersion | None:
         stmt = _scoped_versions(workspace_id).where(DocumentVersionRow.id == version_id)
@@ -175,6 +186,7 @@ class SqlChunkRepository:
 
     async def add_all(self, chunks: Sequence[Chunk]) -> None:
         self._session.add_all(chunk_to_row(chunk) for chunk in chunks)
+        await self._session.flush()
 
     def _scoped(self, workspace_id: UUID, version_id: UUID) -> Select[tuple[ChunkRow]]:
         return (
@@ -202,6 +214,7 @@ class SqlIngestionJobRepository:
 
     async def add(self, job: IngestionJob) -> None:
         self._session.add(job_to_row(job))
+        await self._session.flush()
 
     async def save(self, job: IngestionJob) -> None:
         row = await self._session.get(IngestionJobRow, job.id)
