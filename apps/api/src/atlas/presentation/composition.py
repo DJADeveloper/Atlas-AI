@@ -10,10 +10,16 @@ assemble the same ``Container`` from its own entrypoint.
 from dataclasses import dataclass
 
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from atlas.config.feature_flags import FeatureFlags
 from atlas.config.settings import Settings
+from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 
 
 @dataclass(frozen=True)
@@ -23,7 +29,12 @@ class Container:
     settings: Settings
     feature_flags: FeatureFlags
     db_engine: AsyncEngine
+    session_factory: async_sessionmaker[AsyncSession]
     redis: Redis
+
+    def unit_of_work(self) -> SqlAlchemyUnitOfWork:
+        """One Unit of Work per use-case invocation (application port)."""
+        return SqlAlchemyUnitOfWork(self.session_factory)
 
 
 def build_container(settings: Settings) -> Container:
@@ -32,10 +43,12 @@ def build_container(settings: Settings) -> Container:
     Pure construction: both clients connect lazily on first use, so this
     never performs I/O — the same guarantee `create_app` makes.
     """
+    engine = create_async_engine(settings.database_url)
     return Container(
         settings=settings,
         feature_flags=FeatureFlags(settings.feature_flags),
-        db_engine=create_async_engine(settings.database_url),
+        db_engine=engine,
+        session_factory=async_sessionmaker(engine, expire_on_commit=False),
         redis=Redis.from_url(settings.redis_url),
     )
 
