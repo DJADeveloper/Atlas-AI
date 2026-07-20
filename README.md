@@ -29,9 +29,11 @@ production-grade system built on six commitments:
 
 **Architecture: approved and frozen** — the founding package (28 deliverables
 and a 25-milestone plan) lives in [`docs/`](docs/README.md); changes require
-an ADR. **Implementation: M01 (Scaffolding & CI) delivered** — monorepo
-workspaces, the `atlas-api` app factory with `/health` and `/ready` probes,
-digest-pinned compose `core` profile, strict quality gates, and CI.
+an ADR. **Implementation: M02 (Config, DI & logging) delivered** — runtime
+profiles (`hybrid`/`local-only`), composition-root DI, structlog JSON
+logging with `X-Trace-Id` correlation on every response, an RFC 9457
+problem+json error taxonomy, and CI-enforced clean-architecture import
+contracts, on top of M01's scaffolding, probes, compose stack, and CI.
 
 ## Quickstart
 
