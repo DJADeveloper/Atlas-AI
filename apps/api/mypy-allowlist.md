@@ -9,7 +9,9 @@ None. The codebase currently contains zero `# type: ignore` comments.
 
 ## Configured relaxations (pyproject `[tool.mypy]` overrides)
 
-None. If a third-party dependency without type information ever forces an
-override (e.g. `ignore_missing_imports` for a specific module), it must be
-listed here with the module name, the reason, and the upstream issue tracking
-its typing support.
+| Module | Relaxation | Reason | Upstream |
+|---|---|---|---|
+| `testcontainers.*` | `ignore_missing_imports` | The `testcontainers` distribution ships no `py.typed` marker, so strict mode rejects the import (`import-untyped`). Used only by `tests/integration/`; `src/atlas` never imports it. | testcontainers/testcontainers-python — py.typed marker not yet published; re-check on each dependency bump. |
+
+Any new entry requires: module name, the exact relaxation, why it is
+unavoidable, and the upstream issue or condition under which it gets removed.
