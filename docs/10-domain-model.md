@@ -61,8 +61,8 @@ graph LR
 ```
 
 Relationships are customer–supplier and flow through two channels only:
-identity value objects (a `ChunkId` inside a `Citation`) and domain events (an
-`ApprovalGranted` event resumes a parked `AgentRun`). The shared kernel below
+identity value objects (a chunk id inside a `Citation`) and domain events (an
+`ApprovalGranted` event resumes a parked `AgentRun`); the shared kernel below
 is the one deliberate exception, kept tiny by policy.
 
 ## 3. Shared kernel (`domain/shared`)
@@ -121,8 +121,8 @@ denial, abstention), reserving exceptions for genuine faults.
 
 **Entities:** `Source`, `Document`, `DocumentVersion`, `Chunk`, `IngestionJob`.
 **Value objects:** `ContentHash` (SHA-256 hex), `DocumentPath` (stable
-source-relative path or external id), `HeadingPath`, `TokenCount`, `JobState`
-(`pending → running → succeeded | failed | skipped`), `Embedding` (shared).
+source-relative path or external id), `HeadingPath`, `JobState` (`pending →
+running → succeeded | failed | skipped`), `Embedding` (shared).
 
 ### 4.1 Aggregates and invariants
 
@@ -135,9 +135,8 @@ source-relative path or external id), `HeadingPath`, `TokenCount`, `JobState`
   `(source_id, path)` is unique; `current_version_id` always points at a
   version *of this document*; registering a new version and flipping the
   current pointer happen in one transaction; a soft-deleted document never
-  surfaces in retrieval. The Document is the root — not DocumentVersion —
-  because the pointer flip is the invariant that needs transactional
-  protection, and only the Document can guard it.
+  surfaces in retrieval. Document, not DocumentVersion, is the root because
+  the pointer flip is the invariant needing transactional protection.
 - **Chunk** belongs to the DocumentVersion boundary but is *loaded* through
   `ChunkRepository`, never materialized as a collection on the aggregate: a
   large PDF yields hundreds of chunks, and no invariant needs them in memory.
@@ -200,10 +199,10 @@ when the user edits the file tomorrow, the sentence Atlas cited yesterday
 still exists verbatim — "grounded or silent" (spine §2) is only honest if the
 ground cannot shift under old answers. Third, the hash is a **cache key** for
 the whole parse→chunk→embed pipeline. The alternative — a mutable Document
-row updated in place — is simpler on disk but destroys all three at once:
-every save forces a re-embed decision, breaks old citations, and turns "did
-anything change" from an index lookup into a byte comparison. Immutability
-costs storage for superseded versions; the schema doc defines pruning.
+row updated in place — destroys all three at once: every save forces a
+re-embed decision, breaks old citations, and turns "did anything change" from
+an index lookup into a byte comparison. Immutability costs storage for
+superseded versions; the schema doc defines pruning.
 
 ### 4.4 Why Chunk belongs to DocumentVersion, not Document
 
@@ -218,9 +217,9 @@ current versions; superseded chunks stay only to serve citations until pruned.
 
 ### 4.5 Domain events and ports
 
-Events: `SourceRegistered`, `SourceReindexRequested`, `DocumentDiscovered`,
-`DocumentChanged` (hash differs), `DocumentIngested` (version current, chunks
-searchable), `ChunkEmbedded`, `IngestionFailed`, `DocumentRemoved`.
+Events: `SourceRegistered`, `DocumentDiscovered`, `DocumentChanged` (hash
+differs), `DocumentIngested` (version current, chunks searchable),
+`ChunkEmbedded`, `IngestionFailed`, `DocumentRemoved`.
 
 ```python
 class SourceRepository(Protocol):
@@ -279,15 +278,14 @@ class ConversationRepository(Protocol):
 ```
 
 `recent_messages` exists because loading a 500-message conversation to append
-one message would be aggregate abuse; the root loads a bounded tail, which is
-all its invariants require.
+one message would be aggregate abuse; the root loads a bounded tail.
 
 ## 6. Agents context
 
 **Entities:** `AgentRun` (root), `AgentStep`, `AgentCheckpoint`.
-**Value objects:** `Plan` (ordered goal decomposition produced by the planner —
-a frozen value, replaced wholesale on re-plan, never edited in place),
-`StepKind` (`thought | tool | observation`), `RunStatus`.
+**Value objects:** `Plan` (ordered goal decomposition — a frozen value,
+replaced wholesale on re-plan), `StepKind` (`thought | tool | observation`),
+`RunStatus`.
 
 AgentRun is the root because the run's status machine is the invariant:
 `pending → running → awaiting_approval → running → succeeded | failed |
@@ -321,8 +319,8 @@ class AgentRunRepository(Protocol):
 `RiskTier` (`T0 | T1 | T2 | T3`), `GrantMode` (`auto | ask`), `Principal`,
 `PolicyDecision` (`allowed | denied | needs_approval`, with the reason).
 **Domain service:** `PolicyEngine` — a pure function from (intent, active
-grants, tool definition) to `PolicyDecision`. It is deterministic code with
-unit tests (spine §11); no I/O, no model, no clock beyond an injected `now`.
+grants, tool definition) to `PolicyDecision`; deterministic, unit-tested code
+(spine §11) with no I/O, no model, no clock beyond an injected `now`.
 
 Each entity is its own aggregate root because each has an independent
 lifecycle: definitions are registered at startup, grants are created and
@@ -342,7 +340,6 @@ classDiagram
       +Capability capability
       +RiskTier default_tier
       +dict params_schema
-      +bool reversible
     }
     class PermissionGrant {
       +EntityId id
@@ -351,12 +348,10 @@ classDiagram
       +Scope scope
       +GrantMode mode
       +datetime expires_at
-      +datetime revoked_at
     }
     class Approval {
       +EntityId id
       +EntityId tool_invocation_id
-      +EntityId agent_step_id
       +RiskTier risk_tier
       +str status
       +dict preview
@@ -364,7 +359,6 @@ classDiagram
     class ToolInvocation {
       +EntityId id
       +str tool_name
-      +Capability capability
       +RiskTier risk_tier
       +dict params
       +PolicyDecision decision
@@ -374,7 +368,6 @@ classDiagram
       <<domain service>>
     }
     PermissionGrant --> ToolDefinition : scopes capability of
-    PolicyEngine ..> PermissionGrant : evaluates
     PolicyEngine ..> ToolInvocation : admits or denies
     Approval --> ToolInvocation : gates
     ToolInvocation --> ToolDefinition : executes
@@ -427,9 +420,8 @@ class AuditLog(Protocol):
     async def append(self, event: AuditRecord) -> None: ...
 ```
 
-Events: `PermissionGrantCreated`, `PermissionGrantRevoked`,
-`ApprovalRequested`, `ApprovalGranted`, `ApprovalDenied`,
-`ToolInvocationExecuted`, `ToolInvocationDenied`.
+Events: `PermissionGrantCreated`, `PermissionGrantRevoked`, `ApprovalRequested`,
+`ApprovalGranted`, `ApprovalDenied`, `ToolInvocationExecuted`, `ToolInvocationDenied`.
 
 ## 8. Memory context
 
@@ -440,10 +432,9 @@ Events: `PermissionGrantCreated`, `PermissionGrantRevoked`,
 Memory is deliberately *not* conversation history and *not* the knowledge
 index: it is a curated, typed fact store (spine §6). Invariants:
 `project_fact` requires a project scope; an expired memory is never recalled;
-forgetting is a user-visible soft operation. Each memory records provenance
-(the message it was distilled from) so recall can always answer "why do you
-believe this" — grounded-or-silent, applied to memory. Events:
-`MemoryRemembered`, `MemoryUpdated`, `MemoryForgotten`, `MemoryExpired`.
+forgetting is a user-visible soft operation. Each memory records the message
+it was distilled from, so recall can always answer "why do you believe this."
+Events: `MemoryRemembered`, `MemoryUpdated`, `MemoryForgotten`, `MemoryExpired`.
 
 ```python
 class MemoryRepository(Protocol):
@@ -502,7 +493,6 @@ needs no port of its own because judging is application logic over completions.
 |---|---|---|---|
 | DocumentIngested | Knowledge | Version current, chunks searchable | Projects, observability |
 | ChunkEmbedded | Knowledge | A chunk's embedding is stored | Index-lag metric |
-| IngestionFailed | Knowledge | Job exhausts retries | Jobs UI, alerting |
 | AnswerGrounded | Conversation | Citations persisted for an answer | Evaluation sampling |
 | ApprovalRequested | Tools | T2 or T3 intent parked | Approvals UI, notifications |
 | ApprovalGranted | Tools | Human approves | Executor, waiting AgentRun |
@@ -512,8 +502,8 @@ needs no port of its own because judging is application logic over completions.
 
 Dispatch is in-process and post-commit (collected by the Unit of Work). A
 durable outbox is deliberately deferred to M19, when Temporal makes
-cross-process delivery worth its cost; until then every consumer is in-process
-and idempotent, so post-commit delivery plus startup reconciliation suffices.
+cross-process delivery worth its cost; until then every consumer is idempotent
+and in-process, so post-commit delivery plus startup reconciliation suffices.
 
 ## 12. Ubiquitous language
 
@@ -542,8 +532,7 @@ model; where the spine defines a term, the spine's wording governs.
 
 `PromptVersion` and `AuditEvent` are deliberately not domain aggregates: the
 prompt registry belongs to the `ai/` capability module (spine §5), and audit
-events are write-only from the domain's perspective — appended through the
-`AuditLog` port, never read back for decisions.
+events are write-only for the domain — appended via `AuditLog`, never read back.
 
 ## 13. Decisions made in this document
 
@@ -551,10 +540,10 @@ events are write-only from the domain's perspective — appended through the
   `domain/shared`, since multiple contexts consume them.
 - Ports are async `typing.Protocol`s with a get/add/save repository shape; the
   Unit-of-Work port stays in `application/`.
-- `Principal` renders as `user:<uuid>` today, extensible to agent principals.
-- `GrantMode` is `auto | ask`; grants tighten, never loosen, tier defaults.
-- `Plan` is a frozen value object on AgentRun, replaced wholesale on re-plan.
-- Chunks load via repository, not on the aggregate (small-aggregate rule).
+- `Principal` renders as `user:<uuid>` today (extensible to agent principals);
+  `GrantMode` is `auto | ask`, and grants tighten, never loosen, tier defaults.
+- `Plan` is a frozen value object on AgentRun, replaced wholesale on re-plan;
+  Chunks load via repository, not on the aggregate (small-aggregate rule).
 - Domain events dispatch in-process post-commit via the UoW; durable outbox
   deferred to M19 (Temporal).
 - `EvalTask` enumerates `retrieval | grounding | tool_selection`, matching the

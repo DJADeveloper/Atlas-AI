@@ -45,6 +45,21 @@ Application-visible truth still lives in Postgres; `db2` is plumbing.
 
 ## 3. Queue design
 
+```mermaid
+graph LR
+    API[FastAPI api] -->|enqueue| B[(Redis db1 broker)]
+    BEAT[Celery beat] -->|schedules| B
+    B --> Q1[ingest.parse<br/>concurrency 2]
+    B --> Q2[ingest.embed<br/>concurrency 1]
+    B --> Q3[agent.background<br/>concurrency 2 · high]
+    B --> Q4[maintenance<br/>concurrency 1 · low]
+    Q1 --> PG[(Postgres<br/>ingestion_jobs and chunks)]
+    Q2 --> OL[Ollama<br/>embeddings]
+    Q2 --> PG
+    Q3 --> PG
+    Q4 --> PG
+```
+
 ### 3.1 Named queues by workload class
 
 | Queue | Workload | Concurrency per worker | Priority | Why isolated |
