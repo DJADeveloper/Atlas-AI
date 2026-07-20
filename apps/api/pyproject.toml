@@ -24,6 +24,7 @@ dev = [
   "mypy>=1.13",
   "ruff>=0.8",
   "testcontainers>=4.9",
+  "import-linter>=2.13",
 ]
 
 [build-system]
@@ -83,6 +84,33 @@ show_error_codes = true
 [[tool.mypy.overrides]]
 module = "testcontainers.*"
 ignore_missing_imports = true
+
+[tool.importlinter]
+root_packages = ["atlas"]
+include_external_packages = true
+
+# ADR-0002 made mechanical: violations fail CI, not code review.
+[[tool.importlinter.contracts]]
+name = "Clean Architecture layer ordering"
+type = "layers"
+layers = ["atlas.presentation", "atlas.application", "atlas.domain"]
+
+[[tool.importlinter.contracts]]
+name = "Domain and shared stay framework-free"
+type = "forbidden"
+source_modules = ["atlas.domain", "atlas.shared"]
+forbidden_modules = [
+  "fastapi",
+  "starlette",
+  "pydantic_settings",
+  "sqlalchemy",
+  "redis",
+  "structlog",
+  "uvicorn",
+  "atlas.presentation",
+  "atlas.config",
+  "atlas.observability",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
