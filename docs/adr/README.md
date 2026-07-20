@@ -42,3 +42,4 @@ Concrete observable conditions under which this ADR should be re-opened.
 | [ADR-0008](ADR-0008-sse-for-chat-streaming.md) | SSE for chat streaming; WebSocket reserved for voice | Accepted |
 | [ADR-0009](ADR-0009-uuidv7-primary-keys.md) | UUIDv7 primary keys | Accepted |
 | [ADR-0010](ADR-0010-opentelemetry-genai-conventions.md) | OpenTelemetry with GenAI conventions | Accepted |
+| [ADR-0011](ADR-0011-id-based-aggregate-references.md) | Identifier-based aggregate references (no ORM relationships) | Accepted |

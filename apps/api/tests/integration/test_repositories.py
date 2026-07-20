@@ -21,6 +21,7 @@ from atlas.domain.knowledge.values import ContentHash
 from atlas.infrastructure.persistence.bootstrap import ensure_default_workspace
 from atlas.infrastructure.persistence.tables import EMBEDDING_DIM
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
+from atlas.shared.errors import NotFound
 
 pytestmark = pytest.mark.integration
 
@@ -131,6 +132,29 @@ class TestWorkspaceIsolation:
             assert await uow.chunks.count_for_version(wrong, version.id) == 0
             assert await uow.ingestion_jobs.get(wrong, job.id) is None
             assert await uow.ingestion_jobs.list_by_state(wrong, "pending") == []
+
+
+class TestWriteIsolation:
+    async def test_save_rejects_workspace_mismatch(self, harness: Harness) -> None:
+        """Write-side scoping: saving a source whose entity claims a
+        different workspace than the stored row is refused (NotFound —
+        indistinguishable from absence, per the read contract)."""
+        source = await harness.committed_source(harness.workspace_a)
+        forged = Source(
+            id=source.id,
+            workspace_id=harness.workspace_b,  # attacker claims workspace B
+            kind=source.kind,
+            name="hijacked",
+            uri=source.uri,
+        )
+        with pytest.raises(NotFound):
+            async with harness.uow() as uow:
+                await uow.sources.save(forged)
+                await uow.commit()
+        async with harness.uow() as uow:
+            untouched = await uow.sources.get(harness.workspace_a, source.id)
+        assert untouched is not None
+        assert untouched.name == "Docs"
 
 
 class TestDocumentAggregate:

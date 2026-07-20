@@ -301,3 +301,4 @@ interchangeable behind `LLMProvider` / `EmbeddingProvider` ports.
 | ADR-0008 | SSE for chat streaming; WebSocket reserved for voice |
 | ADR-0009 | UUIDv7 primary keys |
 | ADR-0010 | OpenTelemetry with GenAI conventions |
+| ADR-0011 | Identifier-based aggregate references — no ORM relationships (M03) |
