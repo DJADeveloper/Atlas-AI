@@ -8,15 +8,16 @@ problem+json — a probe result is a state report, not an API error.
 
 import asyncio
 import logging
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from pydantic import BaseModel
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from atlas.config.settings import Settings
+from atlas.presentation.composition import Container
+from atlas.presentation.dependencies import get_container
 from atlas.shared.version import get_version
 
 router = APIRouter(tags=["system"])
@@ -73,16 +74,18 @@ async def _check_redis(redis: Redis, timeout_seconds: float) -> CheckStatus:
     "/ready",
     responses={status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ReadinessResponse}},
 )
-async def ready(request: Request, response: Response) -> ReadinessResponse:
+async def ready(
+    response: Response,
+    container: Annotated[Container, Depends(get_container)],
+) -> ReadinessResponse:
     """Readiness probe — verifies Postgres and Redis are reachable.
 
     Checks run concurrently, each under its own timeout, so a hung
     dependency cannot stall the probe past ``readiness_timeout_seconds``.
     """
-    settings: Settings = request.app.state.settings
-    engine: AsyncEngine = request.app.state.db_engine
-    redis: Redis = request.app.state.redis
-    timeout_seconds = settings.readiness_timeout_seconds
+    engine = container.db_engine
+    redis = container.redis
+    timeout_seconds = container.settings.readiness_timeout_seconds
 
     postgres_status, redis_status = await asyncio.gather(
         _check_postgres(engine, timeout_seconds),
