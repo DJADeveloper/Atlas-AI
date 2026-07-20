@@ -27,12 +27,23 @@ production-grade system built on six commitments:
 
 ## Status
 
-**Architecture phase — complete.** The founding architecture package (28
-deliverables: vision, clean architecture, domain model, database schema and
-ERD, AI/RAG/agent/tool/memory architectures, security, observability,
-evaluation, deployment, scaling, cost, testing, CI/CD, risks, and a
-25-milestone execution plan) lives in [`docs/`](docs/README.md).
-Implementation begins at [Milestone M01](docs/60-milestones.md).
+**Architecture: approved and frozen** — the founding package (28 deliverables
+and a 25-milestone plan) lives in [`docs/`](docs/README.md); changes require
+an ADR. **Implementation: M01 (Scaffolding & CI) delivered** — monorepo
+workspaces, the `atlas-api` app factory with `/health` and `/ready` probes,
+digest-pinned compose `core` profile, strict quality gates, and CI.
+
+## Quickstart
+
+```bash
+# toolchain: uv >= 0.8, pnpm >= 10, docker
+make install                 # Python 3.12 env (uv) + JS workspace (pnpm)
+make up                      # compose core profile: postgres+pgvector, redis, api
+curl localhost:8000/health   # {"status":"ok","version":"0.1.0"}
+curl localhost:8000/ready    # {"status":"ready","checks":{...}}
+make ci-local                # the exact gates CI runs: lint, types, tests, compose
+make test-integration        # readiness tests against real containers
+```
 
 ## Architecture at a glance
 
