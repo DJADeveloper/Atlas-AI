@@ -18,10 +18,12 @@ def test_build_container_performs_no_io() -> None:
     assert container.settings.profile == "hybrid"
 
 
-def test_feature_flags_wired_from_settings() -> None:
+async def test_feature_flags_wired_from_settings() -> None:
+    """Seeds resolve through the layered flags even with the DB down —
+    the override reader degrades gracefully to the config seed."""
     container = build_container(_closed_port_settings())
-    assert container.feature_flags.is_enabled("voice") is True
-    assert container.feature_flags.is_enabled("unknown") is False
+    assert await container.feature_flags.is_enabled("voice") is True
+    assert await container.feature_flags.is_enabled("unknown") is False
 
 
 def test_containers_are_independent_not_singletons() -> None:
