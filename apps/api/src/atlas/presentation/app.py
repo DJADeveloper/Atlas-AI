@@ -17,6 +17,8 @@ from fastapi import FastAPI
 from atlas.config.settings import Settings, load_settings
 from atlas.observability.logging import configure_logging
 from atlas.presentation.composition import build_container, close_container
+from atlas.presentation.errors import register_exception_handlers
+from atlas.presentation.middleware import TraceIdMiddleware
 from atlas.presentation.routes.system import router as system_router
 from atlas.shared.version import get_version
 
@@ -47,5 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=_lifespan,
     )
     app.state.settings = resolved
+    app.add_middleware(TraceIdMiddleware)
+    register_exception_handlers(app)
     app.include_router(system_router)
     return app

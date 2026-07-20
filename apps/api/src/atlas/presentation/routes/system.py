@@ -10,12 +10,14 @@ import asyncio
 import logging
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from atlas.config.profiles import Profile
+from atlas.config.settings import Settings
 from atlas.presentation.composition import Container
 from atlas.presentation.dependencies import get_container
 from atlas.shared.version import get_version
@@ -32,6 +34,7 @@ class HealthResponse(BaseModel):
 
     status: Literal["ok"]
     version: str
+    profile: Profile
 
 
 class ReadinessResponse(BaseModel):
@@ -42,9 +45,14 @@ class ReadinessResponse(BaseModel):
 
 
 @router.get("/health")
-async def health() -> HealthResponse:
-    """Liveness probe — no dependencies are touched."""
-    return HealthResponse(status="ok", version=get_version())
+async def health(request: Request) -> HealthResponse:
+    """Liveness probe — no dependencies are touched.
+
+    Reads settings straight off app state (present before the lifespan
+    runs) so liveness never depends on the container.
+    """
+    settings: Settings = request.app.state.settings
+    return HealthResponse(status="ok", version=get_version(), profile=settings.profile)
 
 
 async def _check_postgres(engine: AsyncEngine, timeout_seconds: float) -> CheckStatus:

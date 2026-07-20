@@ -73,6 +73,16 @@ def bind_trace_id(trace_id: str) -> None:
     structlog.contextvars.bind_contextvars(trace_id=trace_id)
 
 
+def current_trace_id() -> str | None:
+    """The trace id bound to the current context, if any.
+
+    Single source of truth: whatever the logs carry is what error bodies
+    and response headers report — they can never disagree.
+    """
+    value = structlog.contextvars.get_contextvars().get("trace_id")
+    return value if isinstance(value, str) else None
+
+
 def clear_log_context() -> None:
     """Reset request-scoped context; call at request/task boundaries."""
     structlog.contextvars.clear_contextvars()

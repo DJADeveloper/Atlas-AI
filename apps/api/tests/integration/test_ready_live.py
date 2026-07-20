@@ -53,10 +53,29 @@ async def test_ready_returns_200_when_all_dependencies_up(
     async for client in app_client(create_app(settings)):
         response = await client.get("/ready")
         assert response.status_code == 200
+        assert response.headers["X-Trace-Id"]
         assert response.json() == {
             "status": "ready",
             "checks": {"postgres": "ok", "redis": "ok"},
         }
+
+
+async def test_health_reflects_profile_switch(
+    postgres_container: PostgresContainer,
+    redis_container: RedisContainer,
+) -> None:
+    """M02 integration smoke: the profile setting surfaces end to end."""
+    settings = Settings(
+        profile="local-only",
+        database_url=postgres_container.get_connection_url(),
+        redis_url=_redis_url(redis_container),
+        readiness_timeout_seconds=PROBE_TIMEOUT_SECONDS,
+    )
+    async for client in app_client(create_app(settings)):
+        response = await client.get("/health")
+        assert response.status_code == 200
+        assert response.json()["profile"] == "local-only"
+        assert response.headers["X-Trace-Id"]
 
 
 async def test_ready_returns_503_when_redis_stopped(

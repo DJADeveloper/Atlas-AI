@@ -39,6 +39,10 @@ line-length = 100
 src = ["src", "tests"]
 
 [tool.ruff.lint]
+# N818 is disabled as policy: the domain error taxonomy is spec-named
+# (NotFound, Conflict, PermissionDenied, ... - docs/60-milestones.md M02);
+# renaming spec types to satisfy a suffix convention inverts priorities.
+ignore = ["N818"]
 select = [
   "E", "W",      # pycodestyle
   "F",           # pyflakes
@@ -56,6 +60,10 @@ select = [
   "ASYNC",       # async pitfalls
   "S",           # bandit
 ]
+
+[tool.ruff.lint.pylint]
+# Keyword-only factory/constructor signatures legitimately reach six.
+max-args = 6
 
 [tool.ruff.lint.per-file-ignores]
 # Test code idioms, configured here rather than as inline suppressions:

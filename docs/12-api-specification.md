@@ -137,6 +137,8 @@ codes are never renamed or reused:
 | `provider_unavailable` | 503 | All providers in the fallback chain down / circuit open. |
 | `provider_timeout` | 504 | Provider exceeded its deadline; request abandoned. |
 | `internal_error` | 500 | Unhandled fault; `trace_id` is the bug-report handle. |
+| `bad_request` | 400 | Malformed request outside schema validation. *(Appended at M02.)* |
+| `method_not_allowed` | 405 | Known path, unsupported HTTP method. *(Appended at M02.)* |
 
 ### 3.6 Idempotency keys
 
@@ -171,7 +173,7 @@ Grouped exactly by spine §8. Paths omit the `/api/v1` prefix.
 
 | Endpoint | Purpose | Notes |
 |---|---|---|
-| `GET /health` | Liveness — process is up. | 200 `{ "status": "ok", "version": "0.14.2" }`. No auth. |
+| `GET /health` | Liveness — process is up. | 200 `{ "status": "ok", "version": "0.14.2", "profile": "hybrid" }`. No auth. |
 | `GET /ready` | Readiness — Postgres + migrations + Redis (+ Ollama, optional). | 200 `{ "status": "ready", "checks": { "postgres": "ok", "migrations": "ok", "redis": "ok", "ollama": "ok" } }`, or 503 with the failing check. No auth. |
 
 ### 4.2 Auth
