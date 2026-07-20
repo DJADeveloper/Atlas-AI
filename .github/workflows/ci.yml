@@ -1,0 +1,85 @@
+# Atlas CI (M01). Fast path budget: <= 5 minutes wall (M01 acceptance).
+# Jobs delegate to scripts/ci/*.sh — the same commands as `make ci-local` —
+# so local and CI results cannot diverge (docs/53-cicd-strategy.md).
+#
+# Deviation note: actions are pinned by major version tag, not commit SHA.
+# The SHA-pinning policy (docs/53-cicd-strategy.md) requires resolving tag
+# SHAs, which this scaffolding environment could not verify; tracked as an
+# M01 follow-up in the PR description.
+
+name: ci
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - run: uv sync --frozen --project apps/api
+      - run: scripts/ci/lint.sh
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: uv sync --frozen --project apps/api
+      - run: pnpm install --frozen-lockfile
+      - run: scripts/ci/typecheck.sh
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: uv sync --frozen --project apps/api
+      - run: pnpm install --frozen-lockfile
+      - run: scripts/ci/test.sh
+
+  test-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - run: uv sync --frozen --project apps/api
+      - run: scripts/ci/test-integration.sh
+
+  compose-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/ci/compose-validate.sh
