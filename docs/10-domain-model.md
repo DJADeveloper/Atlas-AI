@@ -252,6 +252,13 @@ class DocumentParser(Protocol):
 reranking live in `rag/` and `infrastructure/search/` (spine §5, §10) — the
 port exposes capabilities of the index, not the retrieval policy.
 
+> **Conformance note (M03).** The sketches above are illustrative shape, not
+> normative signatures. The controlling rule is the M03 scoping contract
+> (`60-milestones.md`): every public query method takes `workspace_id` as its
+> first parameter, enforced by a CI introspection test. The implemented ports
+> in `atlas/domain/knowledge/ports.py` follow that rule; `similar`/`keyword`
+> will carry scope via `SearchScope` (which embeds the workspace id) at M06.
+
 ## 5. Conversation context
 
 **Entities:** `Conversation` (root), `Message`, `Citation`, `Feedback`.

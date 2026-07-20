@@ -29,11 +29,13 @@ production-grade system built on six commitments:
 
 **Architecture: approved and frozen** — the founding package (28 deliverables
 and a 25-milestone plan) lives in [`docs/`](docs/README.md); changes require
-an ADR. **Implementation: M02 (Config, DI & logging) delivered** — runtime
-profiles (`hybrid`/`local-only`), composition-root DI, structlog JSON
-logging with `X-Trace-Id` correlation on every response, an RFC 9457
-problem+json error taxonomy, and CI-enforced clean-architecture import
-contracts, on top of M01's scaffolding, probes, compose stack, and CI.
+an ADR. **Implementation: M03 (Database core & domain skeleton) delivered** — the
+reversible Alembic baseline for all ten foundational tables (pgvector
+HNSW + FTS included), UUIDv7 identities, the pure-Python knowledge
+domain with workspace-scoped repository ports, a SQLAlchemy Unit of
+Work, DB-backed feature flags, and an append-only audit table enforced
+at the database — on top of M01/M02's scaffolding, probes, config, DI,
+logging, and error spine.
 
 ## Quickstart
 

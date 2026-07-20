@@ -32,3 +32,15 @@ up: ## Start the dev stack
 
 down: ## Stop the dev stack
 	docker compose -f infra/compose/docker-compose.yml --profile core down
+
+db-upgrade: ## Apply migrations to head
+	cd apps/api && uv run alembic upgrade head
+
+db-downgrade: ## Revert the most recent migration
+	cd apps/api && uv run alembic downgrade -1
+
+db-reset: ## Return to empty and re-migrate from scratch
+	cd apps/api && uv run alembic downgrade base && uv run alembic upgrade head
+
+db-revision: ## Autogenerate a migration (hand-review required; docs/11 §5). Usage: make db-revision m="add xyz"
+	cd apps/api && uv run alembic revision --autogenerate -m "$(m)"
