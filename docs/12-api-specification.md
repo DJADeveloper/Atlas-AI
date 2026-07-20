@@ -7,20 +7,19 @@
 ## 1. API principles
 
 1. **OpenAPI-first.** The FastAPI app (Pydantic v2 models) is the single source
-   of the OpenAPI document. `packages/api-client` is **generated** from it and is
-   the *only* way the UI talks to the API — no hand-rolled `fetch` calls.
-   Contract drift becomes a TypeScript compile error, not a runtime surprise.
-2. **Localhost-only.** The API binds to `127.0.0.1`. Nothing listens on the
-   network in local mode; auth exists to stop *other local processes*.
+   of the OpenAPI document; `packages/api-client` is **generated** from it and
+   is the *only* way the UI talks to the API — no hand-rolled `fetch` calls, so
+   contract drift becomes a TypeScript compile error, not a runtime surprise.
+2. **Localhost-only.** The API binds to `127.0.0.1`; nothing listens on the
+   network in local mode. Auth exists to stop *other local processes*.
 3. **Traceable by construction.** Every response — success or failure, JSON or
-   SSE — carries `X-Trace-Id`; error bodies repeat it as `trace_id`, so one
-   pasted string lets us replay any request.
-4. **Errors are contracts.** RFC 9457 `application/problem+json` with a stable
-   machine-readable `code` (§3.6). Clients branch on `code`, never on prose.
+   SSE — carries `X-Trace-Id`; error bodies repeat it as `trace_id`.
+4. **Errors are contracts.** RFC 9457 problem+json with a stable
+   machine-readable `code` (§3.5). Clients branch on `code`, never on prose.
 5. **Uniform conventions.** Section 3 applies to *every* endpoint; endpoint
    sections document only deviations.
 6. **Read-only by default.** The mutating surface is small, idempotency-guarded
-   (§3.7), and audited wherever it is security-relevant.
+   (§3.6), and audited wherever security-relevant.
 
 ## 2. Authentication
 
@@ -51,7 +50,7 @@ secret**, stores it in the OS keychain, and registers its hash in `api_keys`
 
 ## 3. Conventions
 
-Stated once here; they apply globally and are never repeated per endpoint.
+Stated once here; applied globally; never repeated per endpoint.
 
 ### 3.1 JSON casing — `snake_case`
 
@@ -62,20 +61,17 @@ client eliminates a whole class of mapping bugs and makes `grep fused_score`
 work across the monorepo. The alternative — camelCase at the edge plus a
 translation layer — buys JavaScript aesthetics at the price of two names for
 everything and a serializer that can silently drift. The generated client
-preserves snake_case; the UI adapts, not the contract.
+preserves snake_case: the UI adapts, not the contract.
 
-### 3.2 Timestamps
+### 3.2 Timestamps and identifiers
 
-RFC 3339, UTC, `Z` suffix, millisecond precision where meaningful:
-`"2026-07-20T14:32:05.114Z"`. No local times, no epoch numbers on the wire.
+Timestamps are RFC 3339, UTC, `Z` suffix, millisecond precision where
+meaningful: `"2026-07-20T14:32:05.114Z"`. No local times, no epoch numbers on
+the wire. Identifiers are UUIDv7, generated application-side (ADR-0009),
+lowercase hyphenated: `019f8a3c-6b21-7d4e-8a2f-3c9d1e5b7a01` — time-ordered,
+so ids sort by creation and make good cursor components.
 
-### 3.3 Identifiers
-
-UUIDv7, generated application-side (ADR-0009), lowercase hyphenated:
-`019f8a3c-6b21-7d4e-8a2f-3c9d1e5b7a01`. Time-ordered — ids sort by creation and
-make good cursor components.
-
-### 3.4 Pagination — opaque cursor
+### 3.3 Pagination — opaque cursor
 
 Every list endpoint accepts `?limit=` (default 20, max 100) and `?cursor=`:
 
@@ -93,22 +89,22 @@ concurrent writes (a background indexer is *always* writing in Atlas) cannot
 corrupt iteration. The trade-off — no "jump to page 7" — is one no Atlas screen
 needs; every list is an infinite scroll or a filtered drill-down.
 
-### 3.5 Filtering
+### 3.4 Filtering
 
-- Simple filters are query params on GET lists: `?state=running`, `?source_id=…`.
-- Time ranges use `_after` / `_before` suffixes with RFC 3339 values.
-- Multi-value filters repeat the parameter: `?state=failed&state=skipped`.
-- Structured multi-field filters (search) go in a POST body.
-- Default sort: newest-first by `id` (UUIDv7 ⇒ creation order); alternatives
-  are documented per endpoint as a `?sort=` enum.
+Simple filters are query params on GET lists (`?state=running`,
+`?source_id=…`); time ranges use `_after`/`_before` suffixes with RFC 3339
+values; multi-value filters repeat the parameter (`?state=failed&state=skipped`);
+structured multi-field filters (search) go in a POST body. Default sort is
+newest-first by `id` (UUIDv7 ⇒ creation order); alternatives are a documented
+`?sort=` enum.
 
-### 3.6 Error model — RFC 9457 + stable code registry
+### 3.5 Error model — RFC 9457 + stable code registry
 
 Content type `application/problem+json`, always this shape:
 
 ```json
-{ "type": "https://atlas.dev/errors/approval_required",
-  "title": "Approval required", "status": 409, "code": "approval_required",
+{ "type": "https://atlas.dev/errors/approval_required", "title": "Approval required",
+  "status": 409, "code": "approval_required",
   "detail": "fs.move is risk tier T2 and needs your approval.",
   "trace_id": "7f3a9c1e5b2d4f6a8c0e2a4b6d8f0a1c",
   "errors": [ { "field": "path", "message": "must be absolute" } ],
@@ -116,8 +112,8 @@ Content type `application/problem+json`, always this shape:
 ```
 
 `errors` appears only on `validation_error`; `context` carries machine-usable
-follow-up data (approval id, budget numbers). The registry is **append-only**
-— codes are never renamed or reused:
+follow-up data (approval id, budget numbers). The registry is **append-only** —
+codes are never renamed or reused:
 
 | `code` | HTTP | Meaning |
 |---|---|---|
@@ -142,7 +138,7 @@ follow-up data (approval id, budget numbers). The registry is **append-only**
 | `provider_timeout` | 504 | Provider exceeded its deadline; request abandoned. |
 | `internal_error` | 500 | Unhandled fault; `trace_id` is the bug-report handle. |
 
-### 3.7 Idempotency keys
+### 3.6 Idempotency keys
 
 Every **mutating POST** accepts `Idempotency-Key: <uuid>` (the generated client
 always sends one). The API stores `(route, key) → response` in Redis for 24 h.
@@ -150,16 +146,16 @@ Same key + same payload ⇒ the stored response is replayed (same status/body,
 plus `Idempotent-Replayed: true`) — a retried "send message" does not create a
 second turn; a retried "approve" does not double-execute a move. Same key +
 different payload ⇒ `409 idempotency_key_reuse`. This is the standard defense
-against "did my POST land before the connection dropped?" — the retry loop is
-safe by construction, not by luck. PATCH/DELETE are naturally idempotent and do
-not use the header.
+against "did my POST land before the connection dropped?" — the retry loop
+becomes safe by construction, not by luck. PATCH/DELETE are naturally
+idempotent and do not use the header.
 
-### 3.8 Common headers
+### 3.7 Common headers
 
 | Header | Direction | Notes |
 |---|---|---|
 | `Authorization: Bearer …` | request | All endpoints except `/health`, `/ready`, `/auth/token`. |
-| `Idempotency-Key` | request | Mutating POSTs (§3.7). |
+| `Idempotency-Key` | request | Mutating POSTs (§3.6). |
 | `Last-Event-ID` | request | SSE resume (§4.3.5). |
 | `X-Trace-Id` | response | Always. W3C trace id, 32 hex chars. |
 | `RateLimit-Limit` / `-Remaining` / `-Reset` | response | §6. |
@@ -176,13 +172,7 @@ Grouped exactly by spine §8. Paths omit the `/api/v1` prefix.
 | Endpoint | Purpose | Notes |
 |---|---|---|
 | `GET /health` | Liveness — process is up. | 200 `{ "status": "ok", "version": "0.14.2" }`. No auth. |
-| `GET /ready` | Readiness — Postgres + migrations + Redis (+ Ollama, optional). | 200 or 503 with per-dependency detail. No auth. |
-
-```json
-// GET /ready → 200
-{ "status": "ready",
-  "checks": { "postgres": "ok", "migrations": "ok", "redis": "ok", "ollama": "ok" } }
-```
+| `GET /ready` | Readiness — Postgres + migrations + Redis (+ Ollama, optional). | 200 `{ "status": "ready", "checks": { "postgres": "ok", "migrations": "ok", "redis": "ok", "ollama": "ok" } }`, or 503 with the failing check. No auth. |
 
 ### 4.2 Auth
 
@@ -205,18 +195,15 @@ on brute-force pacing (5 attempts/min).
 (local profile: `llama3.1:8b`). 201; errors: `not_found` (project),
 `validation_error`.
 
-#### `GET /conversations` — list
+#### Read endpoints
 
-Cursor-paginated summaries (id, title, project_id, message_count,
-last_message_at). Filters: `?project_id=`, `?updated_after=`.
+| Endpoint | Purpose |
+|---|---|
+| `GET /conversations` | Cursor-paginated summaries (id, title, project_id, message_count, last_message_at); filters `?project_id=`, `?updated_after=`. |
+| `GET /conversations/{id}` | Metadata for one conversation; 404 `not_found`. |
+| `GET /conversations/{id}/messages` | Persisted messages, cursor-paginated, oldest-first within the window. |
 
-#### `GET /conversations/{id}` — fetch metadata
-
-404 `not_found` if absent. Messages are a separate list:
-
-#### `GET /conversations/{id}/messages` — list persisted messages
-
-Cursor-paginated, oldest-first within the window. Item shape:
+Message item shape:
 
 ```json
 { "id": "019f8a3c-72b8-7f60-8c4b-5e1f3a7d9c23", "role": "assistant",
@@ -224,8 +211,8 @@ Cursor-paginated, oldest-first within the window. Item shape:
   "citations": [ { "marker": 1, "chunk_id": "019f89d4-4e91-7b2c-9f3a-0b1c2d3e4f5a",
       "document_id": "019f89d4-33c5-7a1b-8d2e-6f7a8b9c0d1e",
       "document_title": "pricing-notes.md", "snippet": "…anchor Pro at $12/mo…" } ],
-  "usage": { "model": "claude-sonnet-5", "input_tokens": 3812,
-             "output_tokens": 402, "cost_usd": 0.0174 },
+  "usage": { "model": "claude-sonnet-5", "input_tokens": 3812, "output_tokens": 402,
+             "cost_usd": 0.0174 },
   "created_at": "2026-07-20T14:32:09.871Z" }
 ```
 
@@ -271,7 +258,7 @@ integer `id` (the resume cursor). Every `data:` line is one JSON object.
 | `approval_required` | `{ "approval_id", "invocation_id", "capability", "risk_tier", "summary", "preview": object\|null, "expires_at" }` | When policy parks a T2/T3 invocation for a human. |
 | `usage` | `{ "model", "provider", "prompt_version", "input_tokens", "output_tokens", "cost_usd", "latency_ms", "stop_reason" }` | Once, before `message_end`. |
 | `message_end` | `{ "message_id", "stop_reason", "citation_count", "abstained": bool }` | Once, last on success. |
-| `error` | RFC 9457 body (§3.6) as the data payload | Terminal on mid-stream failure. |
+| `error` | RFC 9457 body (§3.5) as the data payload | Terminal on mid-stream failure. |
 
 Clients MUST ignore unknown event types — that is how the protocol stays
 additive (§5).
@@ -287,25 +274,21 @@ data: {"message_id":"019f8a3c-72b8-7f60-8c4b-5e1f3a7d9c23","conversation_id":"01
 
 id: 1
 event: content_delta
-data: {"index":0,"delta":"You anchored Pro at "}
+data: {"index":0,"delta":"You anchored Pro at $12/mo on 2026-07-14 [1]"}
 
 id: 2
-event: content_delta
-data: {"index":1,"delta":"$12/mo on 2026-07-14 [1]"}
-
-id: 3
 event: citation
 data: {"marker":1,"chunk_id":"019f89d4-4e91-7b2c-9f3a-0b1c2d3e4f5a","document_id":"019f89d4-33c5-7a1b-8d2e-6f7a8b9c0d1e","document_title":"pricing-notes.md","source_id":"019f89d1-2a4b-7c8d-9e0f-1a2b3c4d5e6f","snippet":"…decided to anchor Pro at $12/mo…","fused_score":0.0325}
 
-id: 4
+id: 3
 event: content_delta
-data: {"index":2,"delta":", signed off by Maya in the same doc [1]."}
+data: {"index":1,"delta":", signed off by Maya in the same doc [1]."}
 
-id: 5
+id: 4
 event: usage
 data: {"model":"claude-sonnet-5","provider":"anthropic","prompt_version":"grounded_chat.v7","input_tokens":3812,"output_tokens":402,"cost_usd":0.0174,"latency_ms":2916,"stop_reason":"end_turn"}
 
-id: 6
+id: 5
 event: message_end
 data: {"message_id":"019f8a3c-72b8-7f60-8c4b-5e1f3a7d9c23","stop_reason":"end_turn","citation_count":1,"abstained":false}
 ```
@@ -314,15 +297,10 @@ data: {"message_id":"019f8a3c-72b8-7f60-8c4b-5e1f3a7d9c23","stop_reason":"end_tu
 
 Generation is **detached from the HTTP connection**: the use case appends every
 event to a Redis Stream keyed by message id, and the handler tails it. If the
-connection drops, the model keeps generating. The client resumes with:
-
-```
-GET /messages/{message_id}/stream
-Last-Event-ID: 4
-```
-
-The server replays buffered events with id > 4, then continues live. The buffer
-is retained 15 minutes after `message_end`; after that the endpoint returns 404
+connection drops, the model keeps generating. The client resumes with
+`GET /messages/{message_id}/stream` sending `Last-Event-ID: 3`; the server
+replays buffered events with id > 3, then continues live. The buffer is
+retained 15 minutes after `message_end`; after that the endpoint returns 404
 `not_found` and the client falls back to `GET /conversations/{id}/messages`,
 where the finished message is already persisted. Nothing is lost — the buffer
 is a latency optimization over the database, not the source of truth.
@@ -345,25 +323,20 @@ POST because the filter object outgrows a query string. Full request:
 ```json
 { "query": "pro pricing decision",
   "filters": { "source_ids": ["019f89d1-2a4b-7c8d-9e0f-1a2b3c4d5e6f"],
-    "project_id": "019f7c22-1d3e-7f4a-9b5c-6d7e8f9a0b1c",
-    "file_types": ["md", "pdf"],
-    "modified_after": "2026-01-01T00:00:00Z",
-    "modified_before": "2026-07-20T00:00:00Z" },
+    "project_id": "019f7c22-1d3e-7f4a-9b5c-6d7e8f9a0b1c", "file_types": ["md", "pdf"],
+    "modified_after": "2026-01-01T00:00:00Z", "modified_before": "2026-07-20T00:00:00Z" },
   "top_k": 8, "rerank": true, "require_fresh": false }
-```
-
-```json
 // 200
 { "results": [
     { "chunk_id": "019f89d4-4e91-7b2c-9f3a-0b1c2d3e4f5a",
       "content": "We decided to anchor Pro at $12/mo, Team at $29/seat…",
       "highlight": "decided to anchor <em>Pro</em> at <em>$12/mo</em>",
-      "scores": { "vector_score": 0.83, "fts_rank": 0.61,
-                  "fused_score": 0.0325, "rerank_score": 0.94 },
+      "scores": { "vector_score": 0.83, "fts_rank": 0.61, "fused_score": 0.0325,
+                  "rerank_score": 0.94 },
       "document": { "id": "019f89d4-33c5-7a1b-8d2e-6f7a8b9c0d1e",
         "title": "pricing-notes.md", "path": "notes/pricing-notes.md",
-        "source_id": "019f89d1-2a4b-7c8d-9e0f-1a2b3c4d5e6f",
-        "file_type": "md", "modified_at": "2026-07-14T09:12:44Z" } } ],
+        "source_id": "019f89d1-2a4b-7c8d-9e0f-1a2b3c4d5e6f", "file_type": "md",
+        "modified_at": "2026-07-14T09:12:44Z" } } ],
   "retrieval": { "vector_candidates": 24, "fts_candidates": 24, "fused": 31,
     "reranked": true, "abstain_recommended": false, "latency_ms": 142,
     "index_freshness": { "pending_jobs": 0, "as_of": "2026-07-20T14:31:58.030Z" } } }
@@ -385,8 +358,7 @@ the filtered scope has pending ingestion jobs. Errors: `validation_error`,
   "source_id": "019f89d1-2a4b-7c8d-9e0f-1a2b3c4d5e6f",
   "path": "notes/pricing-notes.md", "title": "pricing-notes.md", "file_type": "md",
   "latest_version": { "id": "019f89d4-41a2-7c3d-8e4f-5a6b7c8d9e0f",
-    "content_hash": "sha256:9c4f…", "chunk_count": 14,
-    "indexed_at": "2026-07-14T09:13:02.511Z" },
+    "content_hash": "sha256:9c4f…", "chunk_count": 14, "indexed_at": "2026-07-14T09:13:02.511Z" },
   "created_at": "2026-05-02T10:01:33.870Z", "updated_at": "2026-07-14T09:13:02.511Z" }
 ```
 
@@ -404,8 +376,7 @@ Requires an `fs.read` grant covering `path` (created beforehand via
 action, spine §11).
 
 ```json
-{ "kind": "folder", "name": "Project notes",
-  "path": "/Users/darryl/Projects/atlas-notes",
+{ "kind": "folder", "name": "Project notes", "path": "/Users/darryl/Projects/atlas-notes",
   "include": ["**/*.md", "**/*.pdf", "**/*.docx"],
   "exclude": ["**/node_modules/**", "**/.git/**"] }
 // 201
@@ -438,11 +409,11 @@ already registered), `validation_error` 422 (relative path, missing dir).
 // GET /jobs/019f89d1-3b5c-7d6e-8f70-2a3b4c5d6e7f → 200
 { "id": "019f89d1-3b5c-7d6e-8f70-2a3b4c5d6e7f", "kind": "scan",
   "source_id": "019f89d1-2a4b-7c8d-9e0f-1a2b3c4d5e6f", "state": "running",
-  "progress": { "documents_total": 412, "documents_done": 268,
-                "chunks_written": 3120, "skipped_unchanged": 61, "failed": 1 },
+  "progress": { "documents_total": 412, "documents_done": 268, "chunks_written": 3120,
+                "skipped_unchanged": 61, "failed": 1 },
   "error": null, "attempt": 1, "max_attempts": 3,
-  "created_at": "2026-07-20T09:15:20.290Z",
-  "started_at": "2026-07-20T09:15:21.008Z", "finished_at": null }
+  "created_at": "2026-07-20T09:15:20.290Z", "started_at": "2026-07-20T09:15:21.008Z",
+  "finished_at": null }
 ```
 
 Failed jobs keep their last `error` (e.g. `{ "code": "unsupported_file_type",
@@ -462,8 +433,7 @@ CRUD: `POST /projects`, `GET /projects`, `GET /projects/{id}`,
 
 `DELETE /projects/{id}/documents/{document_id}` detaches (204). A project
 carries its own memory scope; project-filtered search and chat pass
-`project_id`. Errors: `not_found`, `validation_error`, `conflict` (duplicate
-name).
+`project_id`. Errors: `not_found`, `validation_error`, `conflict` (duplicate name).
 
 ### 4.8 Memories
 
@@ -481,13 +451,9 @@ name).
   "project_id": null,
   "provenance": { "conversation_id": "019f8a3c-6b21-7d4e-8a2f-3c9d1e5b7a01",
                    "message_id": "019f8a3c-72b8-7f60-8c4b-5e1f3a7d9c23" } }
-// 201
-{ "id": "019f8b10-5c6d-7e8f-9a0b-1c2d3e4f5a6b", "kind": "preference",
-  "content": "Prefers concise answers with bullet points over long prose",
-  "project_id": null, "pinned": false, "confidence": 0.9,
-  "provenance": { "conversation_id": "019f8a3c-6b21-7d4e-8a2f-3c9d1e5b7a01",
-                   "message_id": "019f8a3c-72b8-7f60-8c4b-5e1f3a7d9c23" },
-  "created_at": "2026-07-20T14:35:40.226Z" }
+// 201 — echoes the fields above plus:
+{ "id": "019f8b10-5c6d-7e8f-9a0b-1c2d3e4f5a6b", "pinned": false, "confidence": 0.9,
+  "created_at": "2026-07-20T14:35:40.226Z", "…": "…" }
 ```
 
 Kinds are the spine's closed set: `preference | project_fact | decision |
@@ -501,8 +467,7 @@ with user confirmation ([13-sequence-flows.md](13-sequence-flows.md), flow 8).
 ```json
 { "items": [
     { "name": "fs.move", "capability": "fs.write.move", "risk_tier": "T2",
-      "description": "Move or rename a file within granted scopes",
-      "reversible": true,
+      "description": "Move or rename a file within granted scopes", "reversible": true,
       "parameters_schema": { "type": "object", "required": ["src", "dst"],
         "properties": { "src": { "type": "string" }, "dst": { "type": "string" } } } } ],
   "next_cursor": null }
@@ -518,13 +483,11 @@ with user confirmation ([13-sequence-flows.md](13-sequence-flows.md), flow 8).
 
 ```json
 // POST /permissions
-{ "capability": "fs.read",
-  "scope": { "paths": ["/Users/darryl/Projects/atlas-notes/**"] },
+{ "capability": "fs.read", "scope": { "paths": ["/Users/darryl/Projects/atlas-notes/**"] },
   "mode": "allow", "expires_at": null }
-// 201
-{ "id": "019f89c0-1122-7334-8556-778899aabbcc", "capability": "fs.read",
-  "scope": { "paths": ["/Users/darryl/Projects/atlas-notes/**"] },
-  "mode": "allow", "expires_at": null, "created_at": "2026-07-20T09:14:58.402Z" }
+// 201 — echoes the grant plus:
+{ "id": "019f89c0-1122-7334-8556-778899aabbcc",
+  "created_at": "2026-07-20T09:14:58.402Z", "…": "…" }
 ```
 
 #### Approvals
@@ -539,10 +502,8 @@ with user confirmation ([13-sequence-flows.md](13-sequence-flows.md), flow 8).
       "summary": "Move 3 screenshots from Downloads to Projects/atlas-notes/img",
       "preview": { "moves": [ { "src": "/Users/darryl/Downloads/shot1.png",
                                  "dst": "/Users/darryl/Projects/atlas-notes/img/shot1.png" } ] },
-      "status": "pending",
-      "requested_by": "conversation:019f8a3c-6b21-7d4e-8a2f-3c9d1e5b7a01",
-      "expires_at": "2026-07-20T14:51:00.000Z",
-      "created_at": "2026-07-20T14:36:00.113Z" } ],
+      "status": "pending", "requested_by": "conversation:019f8a3c-6b21-7d4e-8a2f-3c9d1e5b7a01",
+      "expires_at": "2026-07-20T14:51:00.000Z", "created_at": "2026-07-20T14:36:00.113Z" } ],
   "next_cursor": null }
 ```
 
@@ -575,11 +536,8 @@ returns 410 `approval_expired`. T3 approvals additionally require
   "created_at": "2026-07-20T15:02:10.550Z" }
 ```
 
-Errors: `budget_exceeded` 402, `validation_error`.
-
-#### `GET /agent-runs` / `GET /agent-runs/{id}`
-
-List (filter `?status=`) and detail. Detail includes `status`
+Errors: `budget_exceeded` 402, `validation_error`. `GET /agent-runs` lists
+(filter `?status=`); `GET /agent-runs/{id}` returns detail: `status`
 (`queued|running|awaiting_approval|succeeded|failed|canceled`),
 `steps_completed`, `cost_usd`, `last_checkpoint_at`, `error`.
 
@@ -589,25 +547,24 @@ Cursor-paginated, ascending `step_no`. The canonical timeline shape:
 
 ```json
 { "items": [
-    { "id": "019f8d77-1b2c-7d3e-8f4a-5b6c7d8e9f0a", "step_no": 1,
-      "kind": "thought", "status": "succeeded",
+    { "id": "019f8d77-1b2c-7d3e-8f4a-5b6c7d8e9f0a", "step_no": 1, "kind": "thought",
+      "status": "succeeded",
       "content": { "text": "Downloads has 214 files; group by extension family." },
-      "started_at": "2026-07-20T15:02:12.001Z",
-      "ended_at": "2026-07-20T15:02:14.310Z", "span_id": "a1b2c3d4e5f60718" },
-    { "id": "019f8d77-2c3d-7e4f-9a5b-6c7d8e9f0a1b", "step_no": 2,
-      "kind": "tool", "status": "succeeded",
+      "started_at": "2026-07-20T15:02:12.001Z", "ended_at": "2026-07-20T15:02:14.310Z",
+      "span_id": "a1b2c3d4e5f60718" },
+    { "id": "019f8d77-2c3d-7e4f-9a5b-6c7d8e9f0a1b", "step_no": 2, "kind": "tool",
+      "status": "succeeded",
       "tool_invocation": { "id": "019f8c55-1a2b-7c3d-9e4f-5a6b7c8d9e0f",
         "tool": "fs.list", "capability": "fs.read", "risk_tier": "T0",
-        "arguments": { "path": "/Users/darryl/Downloads" },
-        "approval_id": null, "undo_journal_id": null },
+        "arguments": { "path": "/Users/darryl/Downloads" }, "approval_id": null,
+        "undo_journal_id": null },
       "checkpoint_id": "019f8d77-2d4e-7f50-8a6b-7c8d9e0f1a2b",
-      "started_at": "2026-07-20T15:02:14.402Z",
-      "ended_at": "2026-07-20T15:02:14.980Z", "span_id": "b2c3d4e5f6071829" },
-    { "id": "019f8d77-3e4f-7a5b-8c6d-7e8f9a0b1c2d", "step_no": 3,
-      "kind": "observation", "status": "succeeded",
-      "content": { "summary": "214 entries returned", "truncated": true },
-      "started_at": "2026-07-20T15:02:14.985Z",
-      "ended_at": "2026-07-20T15:02:15.020Z", "span_id": "c3d4e5f607182930" } ],
+      "started_at": "2026-07-20T15:02:14.402Z", "ended_at": "2026-07-20T15:02:14.980Z",
+      "span_id": "b2c3d4e5f6071829" },
+    { "id": "019f8d77-3e4f-7a5b-8c6d-7e8f9a0b1c2d", "step_no": 3, "kind": "observation",
+      "status": "succeeded", "content": { "summary": "214 entries returned", "truncated": true },
+      "started_at": "2026-07-20T15:02:14.985Z", "ended_at": "2026-07-20T15:02:15.020Z",
+      "span_id": "c3d4e5f607182930" } ],
   "next_cursor": null }
 ```
 
@@ -618,18 +575,16 @@ already finished.
 
 ### 4.11 Evals
 
-#### `POST /eval-runs` — start an eval run
+`POST /eval-runs` starts a run (202); `GET /eval-runs` lists (filter
+`?suite=`, `?status=`); `GET /eval-runs/{id}` returns the scorecard.
 
 ```json
+// POST /eval-runs
 { "suite": "retrieval", "dataset_id": "019f6e00-4a5b-7c6d-8e7f-9a0b1c2d3e4f",
   "baseline_run_id": "019f8000-5b6c-7d7e-8f80-0a1b2c3d4e5f",
   "notes": "PR 412 — chunking overlap change" }
 // 202 → { "id": "019f8e88-1b2c-7d3e-9f4a-5b6c7d8e9f0a", "status": "running" }
-```
 
-#### `GET /eval-runs` / `GET /eval-runs/{id}`
-
-```json
 // GET /eval-runs/019f8e88-1b2c-7d3e-9f4a-5b6c7d8e9f0a → 200
 { "id": "019f8e88-1b2c-7d3e-9f4a-5b6c7d8e9f0a", "suite": "retrieval",
   "status": "succeeded", "dataset_id": "019f6e00-4a5b-7c6d-8e7f-9a0b1c2d3e4f",
@@ -675,9 +630,8 @@ Read-only, append-only underneath, cursor-paginated. Filters: `?category=`
 ```json
 { "items": [
     { "id": "019f8f99-2c3d-7e4f-8a5b-6c7d8e9f0a1b",
-      "occurred_at": "2026-07-20T14:36:00.120Z",
-      "category": "tool", "action": "policy.denied",
-      "actor": "agent_run:019f8d77-0a1b-7c2d-8e3f-4a5b6c7d8e9f",
+      "occurred_at": "2026-07-20T14:36:00.120Z", "category": "tool",
+      "action": "policy.denied", "actor": "agent_run:019f8d77-0a1b-7c2d-8e3f-4a5b6c7d8e9f",
       "subject": { "capability": "terminal.run",
                    "tool_invocation_id": "019f8c55-4b5c-7d6e-8f7a-8b9c0d1e2f3a" },
       "details": { "reason": "no_grant" },
@@ -736,21 +690,19 @@ Choices not already pinned by the spine (simplest consistent option taken):
 1. **Obvious sub-endpoints added:** `GET /conversations/{id}/messages`,
    `GET /messages/{id}/stream` (SSE resume), `GET /sources/{id}`,
    `GET /agent-runs` (list), `GET /projects/{id}`,
-   `DELETE /projects/{id}/documents/{document_id}` — consistent with §8's
-   "representative" lists.
+   `DELETE /projects/{id}/documents/{document_id}`.
 2. **Auth details:** device-secret-in-keychain → 24 h opaque bearer token via
    `POST /auth/token`; hashed secrets in `api_keys`.
-3. **Error registry values:** the 20-code table in §3.6 with HTTP mappings
-   (`budget_exceeded` → 402, `approval_required` → 409, `approval_expired`
-   → 410, `index_stale` → 409).
-4. **Idempotency:** `Idempotency-Key` required on LLM-triggering POSTs,
-   accepted on all mutating POSTs; Redis-backed replay, 24 h TTL;
-   payload mismatch → 409.
+3. **Error registry values:** the 20-code table in §3.5 with HTTP mappings
+   (`budget_exceeded` → 402, `approval_required` → 409, `approval_expired` → 410,
+   `index_stale` → 409).
+4. **Idempotency:** `Idempotency-Key` required on LLM-triggering POSTs, accepted
+   on all mutating POSTs; Redis-backed replay, 24 h TTL; payload mismatch → 409.
 5. **Pagination defaults:** limit 20 default / 100 max; cursor = base64url
    keyset token; `next_cursor: null` terminates.
-6. **SSE mechanics:** integer event ids per stream; Redis Stream buffer kept
-   15 min post-completion; `retry: 3000`; 15 s ping comments; generation
-   detached from the connection.
+6. **SSE mechanics:** integer event ids; Redis Stream buffer kept 15 min
+   post-completion; `retry: 3000`; 15 s pings; generation detached from the
+   connection.
 7. **Approval TTL:** default 15 min (`settings.approvals.pending_ttl_minutes`);
    expiry auto-cancels the invocation; T3 adds typed confirmation text.
 8. **Rate-limit defaults** as tabulated in §6.
