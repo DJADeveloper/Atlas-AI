@@ -15,18 +15,12 @@ from testcontainers.redis import RedisContainer
 from atlas.config.settings import Settings
 from atlas.presentation.app import create_app
 from tests.conftest import app_client
+from tests.integration.conftest import POSTGRES_IMAGE
 
 pytestmark = pytest.mark.integration
 
-POSTGRES_IMAGE = "pgvector/pgvector:pg16"
 REDIS_IMAGE = "redis:7-alpine"
 PROBE_TIMEOUT_SECONDS = 5.0
-
-
-@pytest.fixture(scope="module")
-def postgres_container() -> Iterator[PostgresContainer]:
-    with PostgresContainer(POSTGRES_IMAGE, driver="asyncpg") as container:
-        yield container
 
 
 @pytest.fixture(scope="module")
