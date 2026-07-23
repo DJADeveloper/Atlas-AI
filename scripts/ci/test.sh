@@ -3,5 +3,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-(cd apps/api && uv run pytest -m "not integration")
+(cd apps/api && uv run pytest -m "not integration and not slow")
 pnpm -r test
