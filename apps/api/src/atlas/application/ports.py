@@ -25,8 +25,9 @@ from atlas.domain.knowledge.ports import (
 
 
 class IngestionDispatcher(Protocol):
-    def dispatch(self, workspace_id: UUID, job_id: UUID) -> None:
-        """Enqueue one ingestion attempt for asynchronous execution."""
+    def dispatch(self, workspace_id: UUID, job_id: UUID, trace_id: str | None = None) -> None:
+        """Enqueue one ingestion attempt; trace_id rides along so worker
+        logs correlate with the API request that caused the work."""
         ...
 
 

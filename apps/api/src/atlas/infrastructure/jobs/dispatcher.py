@@ -1,0 +1,23 @@
+"""Celery-backed IngestionDispatcher used by the API process.
+
+Uses ``send_task`` by name so the API never imports the worker module
+(no task-registry coupling between processes).
+"""
+
+from uuid import UUID
+
+from celery import Celery
+
+from atlas.infrastructure.jobs.celery_app import INGEST_QUEUE, INGEST_TASK_NAME
+
+
+class CeleryIngestionDispatcher:
+    def __init__(self, celery: Celery) -> None:
+        self._celery = celery
+
+    def dispatch(self, workspace_id: UUID, job_id: UUID, trace_id: str | None = None) -> None:
+        self._celery.send_task(
+            INGEST_TASK_NAME,
+            args=[str(workspace_id), str(job_id), trace_id],
+            queue=INGEST_QUEUE,
+        )

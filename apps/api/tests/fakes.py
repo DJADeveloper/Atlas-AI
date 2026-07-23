@@ -270,7 +270,7 @@ class FakeFileStore:
 
 class FakeDispatcher:
     def __init__(self) -> None:
-        self.dispatched: list[tuple[UUID, UUID]] = []
+        self.dispatched: list[tuple[UUID, UUID, str | None]] = []
 
-    def dispatch(self, workspace_id: UUID, job_id: UUID) -> None:
-        self.dispatched.append((workspace_id, job_id))
+    def dispatch(self, workspace_id: UUID, job_id: UUID, trace_id: str | None = None) -> None:
+        self.dispatched.append((workspace_id, job_id, trace_id))

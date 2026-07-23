@@ -67,7 +67,7 @@ class TestHashGate:
         rig.write("a.md", b"# Title\n\nBody.")
         report = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
         assert len(report.enqueued_job_ids) == 1
-        assert rig.dispatcher.dispatched == [(rig.workspace_id, report.enqueued_job_ids[0])]
+        assert rig.dispatcher.dispatched == [(rig.workspace_id, report.enqueued_job_ids[0], "b1")]
 
         results = await rig.ingest_all(report.enqueued_job_ids)
         assert results == ["succeeded"]

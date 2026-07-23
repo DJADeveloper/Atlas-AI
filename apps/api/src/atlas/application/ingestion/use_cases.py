@@ -128,7 +128,7 @@ class DetectChanges:
             await uow.commit()
 
         for job_id in enqueued:  # only after commit
-            self.dispatcher.dispatch(workspace_id, job_id)
+            self.dispatcher.dispatch(workspace_id, job_id, batch_id)
         return DetectReport(
             batch_id=batch_id,
             enqueued_job_ids=tuple(enqueued),

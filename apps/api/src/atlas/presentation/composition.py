@@ -19,8 +19,12 @@ from sqlalchemy.ext.asyncio import (
 
 from atlas.config.feature_flags import FeatureFlags, LayeredFeatureFlags
 from atlas.config.settings import Settings
+from atlas.infrastructure.jobs.celery_app import create_celery_app
+from atlas.infrastructure.jobs.dispatcher import CeleryIngestionDispatcher
+from atlas.infrastructure.parsing import ParserRegistry, default_registry
 from atlas.infrastructure.persistence.feature_flags import SqlFlagOverridesReader
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
+from atlas.infrastructure.watcher.filesystem import LocalFileStore
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,9 @@ class Container:
     db_engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
     redis: Redis
+    dispatcher: CeleryIngestionDispatcher
+    file_store: LocalFileStore
+    parser_registry: ParserRegistry
 
     def unit_of_work(self) -> SqlAlchemyUnitOfWork:
         """One Unit of Work per use-case invocation (application port)."""
@@ -55,6 +62,9 @@ def build_container(settings: Settings) -> Container:
         db_engine=engine,
         session_factory=session_factory,
         redis=Redis.from_url(settings.redis_url),
+        dispatcher=CeleryIngestionDispatcher(create_celery_app(settings)),
+        file_store=LocalFileStore(),
+        parser_registry=default_registry(),
     )
 
 
