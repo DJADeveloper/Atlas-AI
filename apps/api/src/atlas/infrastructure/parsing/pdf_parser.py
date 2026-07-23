@@ -10,7 +10,7 @@ from pathlib import PurePath
 
 import pymupdf
 
-from atlas.domain.knowledge.parsing import ParsedDocument, ParseFailed
+from atlas.domain.knowledge.parsing import Block, ParsedDocument, ParseFailed
 from atlas.infrastructure.parsing.text_parsers import ensure_parseable_size
 
 
@@ -29,7 +29,18 @@ class PdfParser:
         try:
             if document.needs_pass:
                 raise ParseFailed("encrypted", f"password-protected PDF: {path}")
-            pages = [document.load_page(index).get_text() for index in range(document.page_count)]
+            blocks: list[Block] = []
+            pages: list[str] = []
+            for index in range(document.page_count):
+                page = document.load_page(index)
+                pages.append(page.get_text())
+                # "blocks" yields text runs in reading order (docs/21 §4:
+                # page → text blocks); each becomes a page-tagged block so
+                # chunks carry page spans for citations.
+                for entry in page.get_text("blocks"):
+                    block_text = str(entry[4]).strip()
+                    if block_text:
+                        blocks.append(Block(kind="paragraph", text=block_text, page=index + 1))
             text = "\n".join(pages)
             if not text.strip():
                 raise ParseFailed(
@@ -42,6 +53,7 @@ class PdfParser:
                 text=text,
                 title=title,
                 meta={"page_count": document.page_count},
+                blocks=tuple(blocks),
             )
         finally:
             document.close()
