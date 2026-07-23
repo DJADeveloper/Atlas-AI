@@ -33,7 +33,9 @@ async def app_client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
     async with (
         LifespanManager(app) as manager,
         httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=manager.app),
+            # Handler responses over raised exceptions: tests assert that
+            # even faulting routes return problem+json with X-Trace-Id.
+            transport=httpx.ASGITransport(app=manager.app, raise_app_exceptions=False),
             base_url="http://test",
         ) as client,
     ):

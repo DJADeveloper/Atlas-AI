@@ -7,16 +7,31 @@ from collections.abc import Iterator
 import pytest
 from alembic import command
 from testcontainers.postgres import PostgresContainer
+from testcontainers.redis import RedisContainer
 
 from tests.integration.dbtools import alembic_env, create_fresh_database
 
 POSTGRES_IMAGE = "pgvector/pgvector:pg16"
+REDIS_IMAGE = "redis:7-alpine"
 
 
 @pytest.fixture(scope="session")
 def postgres_container() -> Iterator[PostgresContainer]:
     with PostgresContainer(POSTGRES_IMAGE, driver="asyncpg") as container:
         yield container
+
+
+@pytest.fixture(scope="session")
+def redis_container() -> Iterator[RedisContainer]:
+    with RedisContainer(REDIS_IMAGE) as container:
+        yield container
+
+
+@pytest.fixture
+def redis_url(redis_container: RedisContainer) -> str:
+    host = redis_container.get_container_host_ip()
+    port = redis_container.get_exposed_port(6379)
+    return f"redis://{host}:{port}/0"
 
 
 @pytest.fixture

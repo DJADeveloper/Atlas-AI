@@ -19,7 +19,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM base AS runtime
 RUN groupadd --system atlas && useradd --system --gid atlas --create-home atlas
 COPY --from=deps /app/.venv /app/.venv
-COPY apps/api/pyproject.toml apps/api/uv.lock apps/api/.python-version apps/api/README.md ./
+COPY apps/api/pyproject.toml apps/api/uv.lock apps/api/.python-version apps/api/README.md apps/api/alembic.ini ./
+COPY apps/api/alembic ./alembic
 COPY apps/api/src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev

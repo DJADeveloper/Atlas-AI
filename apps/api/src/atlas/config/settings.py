@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas"
     redis_url: str = "redis://localhost:6379/0"
     readiness_timeout_seconds: float = 2.0
+    # Compose and desktop targets set this (docs/40 §2.2); tests and
+    # bare dev servers migrate explicitly via make db-upgrade.
+    run_migrations_on_startup: bool = False
 
     feature_flags: dict[str, bool] = Field(default_factory=dict)
 

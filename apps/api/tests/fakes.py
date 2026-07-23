@@ -67,6 +67,9 @@ class FakeSourceRepository:
     async def list_active(self, workspace_id: UUID) -> list[Source]:
         return [replace(s) for s in self._visible(workspace_id) if s.status == "active"]
 
+    async def list_all(self, workspace_id: UUID) -> list[Source]:
+        return [replace(s) for s in self._visible(workspace_id)]
+
 
 @dataclass
 class FakeDocumentRepository:
@@ -199,8 +202,25 @@ class FakeIngestionJobRepository:
     async def list_by_state(
         self, workspace_id: UUID, state: IngestionState, limit: int = 100
     ) -> list[IngestionJob]:
-        matching = [replace(j) for j in self._visible(workspace_id) if j.state == state]
-        return sorted(matching, key=lambda j: j.created_at)[:limit]
+        return await self.list_jobs(workspace_id, state=state, limit=limit)
+
+    async def list_jobs(
+        self,
+        workspace_id: UUID,
+        *,
+        state: IngestionState | None = None,
+        source_id: UUID | None = None,
+        trace_id: str | None = None,
+        limit: int = 100,
+    ) -> list[IngestionJob]:
+        matching = [
+            replace(j)
+            for j in self._visible(workspace_id)
+            if (state is None or j.state == state)
+            and (source_id is None or j.source_id == source_id)
+            and (trace_id is None or j.trace_id == trace_id)
+        ]
+        return sorted(matching, key=lambda j: j.created_at, reverse=True)[:limit]
 
 
 class FakeUnitOfWork:

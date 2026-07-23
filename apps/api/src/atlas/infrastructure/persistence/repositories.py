@@ -19,6 +19,7 @@ from uuid import UUID
 
 from sqlalchemy import CursorResult, Select, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.domain.knowledge.entities import (
@@ -51,7 +52,7 @@ from atlas.infrastructure.persistence.tables import (
     IngestionJobRow,
     SourceRow,
 )
-from atlas.shared.errors import NotFound
+from atlas.shared.errors import Conflict, NotFound
 
 
 def _scoped_documents(workspace_id: UUID) -> Select[tuple[DocumentRow]]:
@@ -78,7 +79,13 @@ class SqlSourceRepository:
 
     async def add(self, source: Source) -> None:
         self._session.add(source_to_row(source))
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as error:
+            # A soft-deleted source still holds UNIQUE(workspace_id, uri);
+            # surface a clean Conflict instead of a 500. Restore-on-register
+            # is M13 source-management scope.
+            raise Conflict(f"a source already exists for {source.uri}") from error
 
     async def save(self, source: Source) -> None:
         row = await self._session.get(SourceRow, source.id)
@@ -111,6 +118,16 @@ class SqlSourceRepository:
             select(SourceRow)
             .where(SourceRow.workspace_id == workspace_id)
             .where(SourceRow.status == "active")
+            .where(SourceRow.deleted_at.is_(None))
+            .order_by(SourceRow.created_at)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [source_from_row(row) for row in rows]
+
+    async def list_all(self, workspace_id: UUID) -> list[Source]:
+        stmt = (
+            select(SourceRow)
+            .where(SourceRow.workspace_id == workspace_id)
             .where(SourceRow.deleted_at.is_(None))
             .order_by(SourceRow.created_at)
         )
@@ -261,11 +278,24 @@ class SqlIngestionJobRepository:
     async def list_by_state(
         self, workspace_id: UUID, state: IngestionState, limit: int = 100
     ) -> list[IngestionJob]:
-        stmt = (
-            self._scoped(workspace_id)
-            .where(IngestionJobRow.state == state)
-            .order_by(IngestionJobRow.created_at)
-            .limit(limit)
-        )
+        return await self.list_jobs(workspace_id, state=state, limit=limit)
+
+    async def list_jobs(
+        self,
+        workspace_id: UUID,
+        *,
+        state: IngestionState | None = None,
+        source_id: UUID | None = None,
+        trace_id: str | None = None,
+        limit: int = 100,
+    ) -> list[IngestionJob]:
+        stmt = self._scoped(workspace_id)
+        if state is not None:
+            stmt = stmt.where(IngestionJobRow.state == state)
+        if source_id is not None:
+            stmt = stmt.where(IngestionJobRow.source_id == source_id)
+        if trace_id is not None:
+            stmt = stmt.where(IngestionJobRow.trace_id == trace_id)
+        stmt = stmt.order_by(IngestionJobRow.created_at.desc()).limit(limit)
         rows = (await self._session.execute(stmt)).scalars().all()
         return [job_from_row(row) for row in rows]

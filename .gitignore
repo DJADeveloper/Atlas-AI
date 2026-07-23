@@ -35,6 +35,9 @@ Thumbs.db
 # Docker
 *.pid
 
+# Local dev source folders (compose mounts ./sandbox at /data)
+sandbox/
+
 # Test artifacts
 .playwright/
 test-results/

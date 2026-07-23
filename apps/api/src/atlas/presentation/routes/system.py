@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from atlas.config.profiles import Profile
 from atlas.config.settings import Settings
+from atlas.infrastructure.persistence.migrations import database_revision, head_revision
 from atlas.presentation.composition import Container
 from atlas.presentation.dependencies import get_container
 from atlas.shared.version import get_version
@@ -67,6 +68,17 @@ async def _check_postgres(engine: AsyncEngine, timeout_seconds: float) -> CheckS
     return "ok"
 
 
+async def _check_migrations(engine: AsyncEngine, timeout_seconds: float) -> CheckStatus:
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            current = await database_revision(engine)
+    # A probe converts every failure mode into a status; nothing may escape.
+    except Exception:
+        _logger.warning("readiness: migrations check failed", exc_info=True)
+        return "error"
+    return "ok" if current == head_revision() else "error"
+
+
 async def _check_redis(redis: Redis, timeout_seconds: float) -> CheckStatus:
     try:
         async with asyncio.timeout(timeout_seconds):
@@ -95,11 +107,16 @@ async def ready(
     redis = container.redis
     timeout_seconds = container.settings.readiness_timeout_seconds
 
-    postgres_status, redis_status = await asyncio.gather(
+    postgres_status, migrations_status, redis_status = await asyncio.gather(
         _check_postgres(engine, timeout_seconds),
+        _check_migrations(engine, timeout_seconds),
         _check_redis(redis, timeout_seconds),
     )
-    checks: dict[str, CheckStatus] = {"postgres": postgres_status, "redis": redis_status}
+    checks: dict[str, CheckStatus] = {
+        "postgres": postgres_status,
+        "migrations": migrations_status,
+        "redis": redis_status,
+    }
 
     if all(check == "ok" for check in checks.values()):
         return ReadinessResponse(status="ready", checks=checks)

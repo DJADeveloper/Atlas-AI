@@ -1,7 +1,8 @@
 # Atlas development stack (docs/40-deployment-architecture.md §2).
 # Profiles per spine §3: core | observability | full.
-# M01 populates `core` with postgres, redis, api; `worker` joins at M04,
-# `web` at M09, the observability services at M10, ollama at M12.
+# `core` runs postgres, redis, api, worker (M04); `web` joins at M09,
+# the observability services at M10, ollama at M12. The api and worker
+# mount ./sandbox at /data read-only — register dev sources under /data.
 #
 # Images are digest-pinned (M01 risk mitigation: compose drift). To bump:
 # update the tag AND digest together, in one reviewed commit.
@@ -53,6 +54,7 @@ services:
     environment:
       ATLAS_DATABASE_URL: postgresql+asyncpg://atlas:atlas@postgres:5432/atlas
       ATLAS_REDIS_URL: redis://redis:6379/0
+      ATLAS_RUN_MIGRATIONS_ON_STARTUP: "true"  # docs/40 §2.2; workers never migrate
     # Dev loop: source bind-mounted, uvicorn reloads on change
     # (docs/40-deployment-architecture.md §2.2).
     command:
@@ -68,8 +70,36 @@ services:
       ]
     volumes:
       - ../../apps/api/src:/app/src
+      - ../../sandbox:/data:ro
     ports:
       - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    profiles: [core, full]
+    environment:
+      ATLAS_DATABASE_URL: postgresql+asyncpg://atlas:atlas@postgres:5432/atlas
+      ATLAS_REDIS_URL: redis://redis:6379/0
+    command:
+      [
+        "celery",
+        "-A",
+        "atlas.infrastructure.jobs.worker",
+        "worker",
+        "--loglevel=INFO",
+        "-Q",
+        "ingest.parse",
+      ]
+    volumes:
+      - ../../apps/api/src:/app/src
+      - ../../sandbox:/data:ro
     depends_on:
       postgres:
         condition: service_healthy

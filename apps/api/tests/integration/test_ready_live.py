@@ -6,8 +6,6 @@ the compose `core` profile (`docs/40-deployment-architecture.md` §2.1)
 so the probe is exercised against exactly what developers run.
 """
 
-from collections.abc import Iterator
-
 import pytest
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
@@ -15,18 +13,11 @@ from testcontainers.redis import RedisContainer
 from atlas.config.settings import Settings
 from atlas.presentation.app import create_app
 from tests.conftest import app_client
-from tests.integration.conftest import POSTGRES_IMAGE
+from tests.integration.conftest import POSTGRES_IMAGE, REDIS_IMAGE
 
 pytestmark = pytest.mark.integration
 
-REDIS_IMAGE = "redis:7-alpine"
 PROBE_TIMEOUT_SECONDS = 5.0
-
-
-@pytest.fixture(scope="module")
-def redis_container() -> Iterator[RedisContainer]:
-    with RedisContainer(REDIS_IMAGE) as container:
-        yield container
 
 
 def _redis_url(container: RedisContainer) -> str:
@@ -36,11 +27,11 @@ def _redis_url(container: RedisContainer) -> str:
 
 
 async def test_ready_returns_200_when_all_dependencies_up(
-    postgres_container: PostgresContainer,
+    migrated_database_url: str,
     redis_container: RedisContainer,
 ) -> None:
     settings = Settings(
-        database_url=postgres_container.get_connection_url(),
+        database_url=migrated_database_url,
         redis_url=_redis_url(redis_container),
         readiness_timeout_seconds=PROBE_TIMEOUT_SECONDS,
     )
@@ -50,7 +41,7 @@ async def test_ready_returns_200_when_all_dependencies_up(
         assert response.headers["X-Trace-Id"]
         assert response.json() == {
             "status": "ready",
-            "checks": {"postgres": "ok", "redis": "ok"},
+            "checks": {"postgres": "ok", "migrations": "ok", "redis": "ok"},
         }
 
 
@@ -73,13 +64,13 @@ async def test_health_reflects_profile_switch(
 
 
 async def test_ready_returns_503_when_redis_stopped(
-    postgres_container: PostgresContainer,
+    migrated_database_url: str,
 ) -> None:
     with RedisContainer(REDIS_IMAGE) as ephemeral_redis:
         redis_url = _redis_url(ephemeral_redis)
     # Context exit stopped the container; its port is now closed.
     settings = Settings(
-        database_url=postgres_container.get_connection_url(),
+        database_url=migrated_database_url,
         redis_url=redis_url,
         readiness_timeout_seconds=PROBE_TIMEOUT_SECONDS,
     )
@@ -88,7 +79,7 @@ async def test_ready_returns_503_when_redis_stopped(
         assert response.status_code == 503
         assert response.json() == {
             "status": "not_ready",
-            "checks": {"postgres": "ok", "redis": "error"},
+            "checks": {"postgres": "ok", "migrations": "ok", "redis": "error"},
         }
 
 
@@ -108,5 +99,5 @@ async def test_ready_returns_503_when_postgres_stopped(
         assert response.status_code == 503
         assert response.json() == {
             "status": "not_ready",
-            "checks": {"postgres": "error", "redis": "ok"},
+            "checks": {"postgres": "error", "migrations": "error", "redis": "ok"},
         }

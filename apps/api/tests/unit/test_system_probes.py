@@ -22,4 +22,4 @@ async def test_ready_returns_503_when_dependencies_unreachable(
     assert response.status_code == 503
     body = response.json()
     assert body["status"] == "not_ready"
-    assert body["checks"] == {"postgres": "error", "redis": "error"}
+    assert body["checks"] == {"postgres": "error", "migrations": "error", "redis": "error"}
