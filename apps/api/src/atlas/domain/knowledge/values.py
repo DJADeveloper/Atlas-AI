@@ -11,17 +11,22 @@ from typing import Literal, get_args
 SourceKind = Literal["folder", "git", "drive", "notion", "slack", "email"]
 SourceStatus = Literal["active", "paused", "error"]
 IngestionState = Literal["pending", "running", "succeeded", "failed", "skipped"]
+# Pipeline stages a job passes through (docs/21 §3); recorded on the job
+# row for per-stage visibility, advanced forward-only.
+IngestionStage = Literal["parse", "chunk", "embed", "index"]
 
 SOURCE_KINDS: tuple[SourceKind, ...] = get_args(SourceKind)
 SOURCE_STATUSES: tuple[SourceStatus, ...] = get_args(SourceStatus)
 INGESTION_STATES: tuple[IngestionState, ...] = get_args(IngestionState)
+INGESTION_STAGES: tuple[IngestionStage, ...] = get_args(IngestionStage)
 
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True, slots=True)
 class ContentHash:
-    """SHA-256 of a document version's raw bytes, lowercase hex."""
+    """SHA-256 content digest, lowercase hex: a document version's raw
+    bytes, or a chunk's exact embedded text (the embedding-cache key)."""
 
     value: str
 

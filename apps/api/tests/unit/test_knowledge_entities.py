@@ -11,7 +11,8 @@ from atlas.domain.knowledge.entities import (
     IngestionJob,
     Source,
 )
-from atlas.domain.knowledge.values import ContentHash
+from atlas.domain.knowledge.parsing import Block
+from atlas.domain.knowledge.values import ContentHash, IngestionStage
 from atlas.shared.errors import Conflict, ValidationFailed
 from atlas.shared.ids import uuid7
 
@@ -60,11 +61,13 @@ class TestChunkInvariants:
             ordinal=0,
             text="Atlas is an AI operating system.",
             token_count=7,
+            content_hash=HASH,
             heading_path=("Overview",),
             embedding=(0.1, 0.2),
             embedding_model="nomic-embed-text",
         )
         assert chunk.heading_path == ("Overview",)
+        assert chunk.is_embedded
 
     @pytest.mark.parametrize(
         ("field_name", "value"),
@@ -76,12 +79,47 @@ class TestChunkInvariants:
             "ordinal": 0,
             "text": "t",
             "token_count": 1,
+            "content_hash": HASH,
             "embedding": (0.1,),
             "embedding_model": "nomic-embed-text",
         }
         base[field_name] = value
         with pytest.raises(ValidationFailed):
             Chunk(**base)
+
+    def test_staged_chunk_then_embedding_completion(self) -> None:
+        """M05 staging: the chunk stage stores unembedded rows; the embed
+        stage completes them without mutating the frozen value."""
+        staged = Chunk(
+            document_version_id=uuid7(),
+            ordinal=0,
+            text="staged span",
+            token_count=2,
+            content_hash=HASH,
+        )
+        assert not staged.is_embedded
+        embedded = staged.with_embedding((0.1, 0.2), "nomic-embed-text")
+        assert embedded.is_embedded
+        assert embedded.id == staged.id
+        assert not staged.is_embedded  # original value untouched
+
+    @pytest.mark.parametrize(
+        ("embedding", "model"),
+        [((0.1,), None), (None, "nomic-embed-text"), ((0.1,), "  ")],
+    )
+    def test_embedding_and_model_are_paired(
+        self, embedding: tuple[float, ...] | None, model: str | None
+    ) -> None:
+        with pytest.raises(ValidationFailed):
+            Chunk(
+                document_version_id=uuid7(),
+                ordinal=0,
+                text="t",
+                token_count=1,
+                content_hash=HASH,
+                embedding=embedding,
+                embedding_model=model,
+            )
 
 
 class TestIngestionJobStateMachine:
@@ -144,3 +182,50 @@ class TestDeadLetterSemantics:
         job.start()
         job.succeed()
         assert not job.is_dead_lettered
+
+
+class TestPipelineStages:
+    def test_jobs_begin_at_parse(self) -> None:
+        assert IngestionJob(source_id=uuid7()).stage == "parse"
+
+    def test_stages_advance_forward(self) -> None:
+        job = IngestionJob(source_id=uuid7())
+        forward: tuple[IngestionStage, ...] = ("chunk", "embed", "index")
+        for stage in forward:
+            job.advance_stage(stage)
+            assert job.stage == stage
+
+    def test_reentering_current_stage_is_legal(self) -> None:
+        """At-least-once delivery re-runs a stage; that is not a fault."""
+        job = IngestionJob(source_id=uuid7())
+        job.advance_stage("embed")
+        job.advance_stage("embed")
+        assert job.stage == "embed"
+
+    def test_stage_never_moves_back(self) -> None:
+        job = IngestionJob(source_id=uuid7())
+        job.advance_stage("index")
+        with pytest.raises(Conflict):
+            job.advance_stage("chunk")
+
+
+class TestBlockInvariants:
+    def test_heading_block_carries_level(self) -> None:
+        block = Block(kind="heading", text="Overview", level=2)
+        assert (block.level, block.page) == (2, None)
+
+    def test_page_tagged_block(self) -> None:
+        assert Block(kind="paragraph", text="body", page=3).page == 3
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"kind": "paragraph", "text": "   "},
+            {"kind": "heading", "text": "Untitled"},  # heading without level
+            {"kind": "heading", "text": "Untitled", "level": 0},
+            {"kind": "paragraph", "text": "body", "page": 0},
+        ],
+    )
+    def test_invalid_blocks_rejected(self, kwargs: dict[str, Any]) -> None:
+        with pytest.raises(ValidationFailed):
+            Block(**kwargs)

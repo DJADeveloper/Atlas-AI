@@ -109,6 +109,7 @@ class TestWorkspaceIsolation:
             ordinal=0,
             text="alpha",
             token_count=1,
+            content_hash=HASH,
             embedding=tuple([0.5] * EMBEDDING_DIM),
             embedding_model="nomic-embed-text",
         )
@@ -195,6 +196,7 @@ class TestDocumentAggregate:
                 ordinal=index,
                 text=f"chunk {index}",
                 token_count=2,
+                content_hash=ContentHash(f"{index:x}" * 64),
                 heading_path=("Title", f"Section {index}"),
                 embedding=tuple(float(index) / 10 for _ in range(EMBEDDING_DIM)),
                 embedding_model="nomic-embed-text",

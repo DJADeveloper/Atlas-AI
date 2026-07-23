@@ -30,7 +30,12 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMP, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from atlas.domain.knowledge.values import INGESTION_STATES, SOURCE_KINDS, SOURCE_STATUSES
+from atlas.domain.knowledge.values import (
+    INGESTION_STAGES,
+    INGESTION_STATES,
+    SOURCE_KINDS,
+    SOURCE_STATUSES,
+)
 from atlas.shared.clock import utc_now
 
 EMBEDDING_DIM = 768  # deployment-profile constant (spine §7)
@@ -163,8 +168,15 @@ class DocumentVersionRow(_CreatedOnly, Base):
 
 class ChunkRow(_CreatedOnly, Base):
     __tablename__ = "chunks"
+    # embedding/embedding_model are nullable as a pair (M05): the chunk
+    # stage inserts staged rows, the embed stage completes them; only
+    # fully embedded sets become a document's current version.
     __table_args__ = (
         UniqueConstraint("document_version_id", "ordinal"),
+        CheckConstraint(
+            "(embedding IS NULL) = (embedding_model IS NULL)",
+            name="embedding_paired",
+        ),
         Index(
             "chunks_embedding_hnsw",
             "embedding",
@@ -173,6 +185,9 @@ class ChunkRow(_CreatedOnly, Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
         Index("chunks_tsv_gin", "tsv", postgresql_using="gin"),
+        # Embedding-cache lookup path (M05): vectors are reused by
+        # (embedding_model, content_hash) — Postgres IS the cache.
+        Index("chunks_embedding_cache", "embedding_model", "content_hash"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
@@ -182,10 +197,11 @@ class ChunkRow(_CreatedOnly, Base):
     ordinal: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
     token_count: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(Text)
     heading_path: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=sql_text("'{}'"))
     meta: Mapped[dict[str, Any]] = mapped_column(JSONB, server_default=sql_text("'{}'::jsonb"))
-    embedding: Mapped[Any] = mapped_column(Vector(EMBEDDING_DIM))
-    embedding_model: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[Any | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(Text, nullable=True)
     tsv: Mapped[Any] = mapped_column(
         TSVECTOR,
         Computed("to_tsvector('english', text)", persisted=True),
@@ -199,6 +215,7 @@ class IngestionJobRow(_Stamped, Base):
     # migration-owned DDL (0002), excluded from autogenerate in env.py.
     __table_args__ = (
         CheckConstraint(_in_clause("state", INGESTION_STATES), name="state_allowed"),
+        CheckConstraint(_in_clause("stage", INGESTION_STAGES), name="stage_allowed"),
         Index("ingestion_jobs_state_idx", "state", "created_at"),
         Index("ingestion_jobs_document_idx", "document_id"),
     )
@@ -208,6 +225,7 @@ class IngestionJobRow(_Stamped, Base):
     document_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
     content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     state: Mapped[str] = mapped_column(Text, server_default=sql_text("'pending'"))
+    stage: Mapped[str] = mapped_column(Text, server_default=sql_text("'parse'"))
     attempts: Mapped[int] = mapped_column(Integer, server_default=sql_text("0"))
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     trace_id: Mapped[str | None] = mapped_column(Text, nullable=True)

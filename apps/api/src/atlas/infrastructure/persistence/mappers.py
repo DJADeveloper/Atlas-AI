@@ -10,6 +10,8 @@ mismatch impossible in practice, and the narrowing functions make it a
 loud domain error rather than a silent lie if the two ever drift.
 """
 
+from typing import Any
+
 from atlas.domain.knowledge.entities import (
     Chunk,
     Document,
@@ -18,10 +20,12 @@ from atlas.domain.knowledge.entities import (
     Source,
 )
 from atlas.domain.knowledge.values import (
+    INGESTION_STAGES,
     INGESTION_STATES,
     SOURCE_KINDS,
     SOURCE_STATUSES,
     ContentHash,
+    IngestionStage,
     IngestionState,
     SourceKind,
     SourceStatus,
@@ -51,6 +55,12 @@ def _as_status(value: str) -> SourceStatus:
 def _as_state(value: str) -> IngestionState:
     if value not in INGESTION_STATES:
         raise ValidationFailed(f"unknown ingestion state in database: {value!r}")
+    return value
+
+
+def _as_stage(value: str) -> IngestionStage:
+    if value not in INGESTION_STAGES:
+        raise ValidationFailed(f"unknown ingestion stage in database: {value!r}")
     return value
 
 
@@ -157,26 +167,34 @@ def chunk_to_row(entity: Chunk) -> ChunkRow:
         ordinal=entity.ordinal,
         text=entity.text,
         token_count=entity.token_count,
+        content_hash=str(entity.content_hash),
         heading_path=list(entity.heading_path),
         meta=dict(entity.meta),
-        embedding=list(entity.embedding),
+        embedding=None if entity.embedding is None else list(entity.embedding),
         embedding_model=entity.embedding_model,
         created_at=entity.created_at,
     )
 
 
-def chunk_from_row(row: ChunkRow) -> Chunk:
-    raw = row.embedding
+def _vector_from_row(raw: Any) -> tuple[float, ...] | None:
+    """pgvector returns numpy-like arrays or lists depending on driver path."""
+    if raw is None:
+        return None
     values = raw.to_list() if hasattr(raw, "to_list") else raw
+    return tuple(float(component) for component in values)
+
+
+def chunk_from_row(row: ChunkRow) -> Chunk:
     return Chunk(
         id=row.id,
         document_version_id=row.document_version_id,
         ordinal=row.ordinal,
         text=row.text,
         token_count=row.token_count,
+        content_hash=ContentHash(row.content_hash),
         heading_path=tuple(row.heading_path),
         meta=dict(row.meta),
-        embedding=tuple(float(component) for component in values),
+        embedding=_vector_from_row(row.embedding),
         embedding_model=row.embedding_model,
         created_at=row.created_at,
     )
@@ -189,6 +207,7 @@ def job_to_row(entity: IngestionJob) -> IngestionJobRow:
         document_id=entity.document_id,
         content_hash=entity.content_hash,
         state=entity.state,
+        stage=entity.stage,
         attempts=entity.attempts,
         error=entity.error,
         trace_id=entity.trace_id,
@@ -200,6 +219,7 @@ def job_to_row(entity: IngestionJob) -> IngestionJobRow:
 
 def apply_job(row: IngestionJobRow, entity: IngestionJob) -> None:
     row.state = entity.state
+    row.stage = entity.stage
     row.attempts = entity.attempts
     row.error = entity.error
     row.trace_id = entity.trace_id
@@ -214,6 +234,7 @@ def job_from_row(row: IngestionJobRow) -> IngestionJob:
         document_id=row.document_id,
         content_hash=row.content_hash,
         state=_as_state(row.state),
+        stage=_as_stage(row.stage),
         attempts=row.attempts,
         error=row.error,
         trace_id=row.trace_id,

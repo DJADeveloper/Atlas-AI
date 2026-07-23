@@ -7,12 +7,13 @@ of its own. Entities raise domain errors (`atlas.shared.errors`) on invariant
 violations — never framework exceptions.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from uuid import UUID
 
 from atlas.domain.knowledge.values import (
     ContentHash,
+    IngestionStage,
     IngestionState,
     SourceKind,
     SourceStatus,
@@ -117,17 +118,26 @@ class DocumentVersion:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Chunk:
     """A retrievable span of a DocumentVersion. Immutable; re-chunking a
-    document produces a new version with new chunk rows."""
+    document produces a new version with new chunk rows.
+
+    ``content_hash`` digests the exact *embedded* text (breadcrumb
+    prefix + display text) and keys the embedding cache with
+    ``embedding_model`` (M05). A chunk is staged unembedded by the chunk
+    stage and completed by :meth:`with_embedding` at the embed stage —
+    only fully embedded chunk sets ever become a document's current
+    version (the atomic swap, docs/21 §3).
+    """
 
     id: UUID = field(default_factory=uuid7)
     document_version_id: UUID
     ordinal: int
     text: str
     token_count: int
+    content_hash: ContentHash
     heading_path: tuple[str, ...] = ()
     meta: dict[str, object] = field(default_factory=dict)
-    embedding: tuple[float, ...]
-    embedding_model: str
+    embedding: tuple[float, ...] | None = None
+    embedding_model: str | None = None
     created_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
@@ -137,10 +147,20 @@ class Chunk:
             raise ValidationFailed("chunk text must not be empty")
         if self.token_count <= 0:
             raise ValidationFailed("token_count must be positive")
-        if not self.embedding:
+        if (self.embedding is None) != (self.embedding_model is None):
+            raise ValidationFailed("embedding and embedding_model are set together")
+        if self.embedding is not None and not self.embedding:
             raise ValidationFailed("embedding must not be empty")
-        if not self.embedding_model.strip():
+        if self.embedding_model is not None and not self.embedding_model.strip():
             raise ValidationFailed("embedding_model must not be empty")
+
+    @property
+    def is_embedded(self) -> bool:
+        return self.embedding is not None
+
+    def with_embedding(self, vector: tuple[float, ...], model: str) -> "Chunk":
+        """Complete a staged chunk; immutability makes this a new value."""
+        return replace(self, embedding=vector, embedding_model=model)
 
 
 MAX_INGESTION_ATTEMPTS = 3
@@ -161,6 +181,7 @@ class IngestionJob:
     document_id: UUID | None = None
     content_hash: str | None = None
     state: IngestionState = "pending"
+    stage: IngestionStage = "parse"
     attempts: int = 0
     error: str | None = None
     trace_id: str | None = None
@@ -182,6 +203,17 @@ class IngestionJob:
         if target not in _JOB_TRANSITIONS[self.state]:
             raise Conflict(f"illegal ingestion transition {self.state} -> {target}")
         self.state = target
+
+    def advance_stage(self, target: IngestionStage) -> None:
+        """Move the job forward through the pipeline (docs/21 §3).
+
+        Forward-only; re-entering the current stage is legal because
+        Celery delivery is at-least-once and stages are idempotent.
+        """
+        stages: tuple[IngestionStage, ...] = ("parse", "chunk", "embed", "index")
+        if stages.index(target) < stages.index(self.stage):
+            raise Conflict(f"ingestion stage cannot move back: {self.stage} -> {target}")
+        self.stage = target
 
     def start(self, *, trace_id: str | None = None, now: datetime | None = None) -> None:
         self._transition("running")
