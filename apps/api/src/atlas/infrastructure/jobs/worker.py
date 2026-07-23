@@ -9,20 +9,39 @@ idempotent hash gate). The retry ladder maps 1:1 — the use case decides
 """
 
 import asyncio
+from typing import Any
 from uuid import UUID
 
 import structlog
 from celery import Task
+from celery.signals import worker_ready, worker_shutdown
 
 from atlas.application.ingestion import IngestOutcome
 from atlas.config.settings import load_settings
 from atlas.infrastructure.jobs.celery_app import INGEST_TASK_NAME, create_celery_app
+from atlas.infrastructure.jobs.dispatcher import CeleryIngestionDispatcher
 from atlas.infrastructure.jobs.runtime import get_runtime
+from atlas.infrastructure.watcher.main import WatcherThread
 from atlas.observability.logging import bind_trace_id, clear_log_context
 
 celery_app = create_celery_app(load_settings())
 
 _logger = structlog.get_logger("atlas.worker")
+
+_watcher = WatcherThread(load_settings(), CeleryIngestionDispatcher(celery_app))
+
+
+@worker_ready.connect
+def _start_watcher(**_kwargs: Any) -> None:
+    """M04 deliverable: the watcher starts with the worker process."""
+    _watcher.start()
+    _logger.info("watcher.thread_started")
+
+
+@worker_shutdown.connect
+def _stop_watcher(**_kwargs: Any) -> None:
+    _watcher.stop()
+    _logger.info("watcher.thread_stopped")
 
 
 def execute_ingestion_attempt(

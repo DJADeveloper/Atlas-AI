@@ -9,6 +9,7 @@ This is the documented exception to "no module-level singletons":
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from atlas.application.ingestion import IngestDocument
 from atlas.config.settings import Settings, load_settings
@@ -28,7 +29,10 @@ class WorkerRuntime:
 def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
     resolved = settings if settings is not None else load_settings()
     configure_logging(resolved.log_level)
-    engine = create_async_engine(resolved.database_url)
+    # NullPool, deliberately: every Celery task runs its own event loop
+    # via asyncio.run, and asyncpg connections are loop-bound — a shared
+    # pool would hand a task a connection created on a dead loop.
+    engine = create_async_engine(resolved.database_url, poolclass=NullPool)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     registry = default_registry()
     return WorkerRuntime(
