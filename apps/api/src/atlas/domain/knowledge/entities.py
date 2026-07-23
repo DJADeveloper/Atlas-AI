@@ -143,13 +143,23 @@ class Chunk:
             raise ValidationFailed("embedding_model must not be empty")
 
 
+MAX_INGESTION_ATTEMPTS = 3
+
+
 @dataclass(slots=True, kw_only=True)
 class IngestionJob:
-    """One tracked unit of parse→chunk→embed work (states per spine §6)."""
+    """One tracked unit of parse→chunk→embed work (states per spine §6).
+
+    ``content_hash`` is the idempotency key with ``document_id`` (M04):
+    at most one non-terminal job may exist per (document, content) pair —
+    enforced by a partial unique index, so watcher/reindex races collapse
+    into a single job instead of duplicate work.
+    """
 
     id: UUID = field(default_factory=uuid7)
     source_id: UUID
     document_id: UUID | None = None
+    content_hash: str | None = None
     state: IngestionState = "pending"
     attempts: int = 0
     error: str | None = None
@@ -157,6 +167,16 @@ class IngestionJob:
     started_at: datetime | None = None
     finished_at: datetime | None = None
     created_at: datetime = field(default_factory=utc_now)
+
+    @property
+    def is_dead_lettered(self) -> bool:
+        """Failed with retries exhausted: terminal, surfaced by the API,
+        replayable only by explicit reindex (M04 dead-letter detail)."""
+        return self.state == "failed" and self.attempts >= MAX_INGESTION_ATTEMPTS
+
+    @property
+    def can_retry(self) -> bool:
+        return self.state == "failed" and self.attempts < MAX_INGESTION_ATTEMPTS
 
     def _transition(self, target: IngestionState) -> None:
         if target not in _JOB_TRANSITIONS[self.state]:

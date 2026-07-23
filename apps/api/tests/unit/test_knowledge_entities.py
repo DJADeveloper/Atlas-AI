@@ -118,3 +118,29 @@ class TestIngestionJobStateMachine:
             getattr(job, step)("x") if step in ("fail", "skip") else getattr(job, step)()
         with pytest.raises(Conflict):
             getattr(job, illegal)("x") if illegal in ("fail", "skip") else getattr(job, illegal)()
+
+
+class TestDeadLetterSemantics:
+    def test_failed_before_exhaustion_can_retry(self) -> None:
+        job = IngestionJob(source_id=uuid7())
+        job.start()
+        job.fail("boom")
+        assert job.can_retry
+        assert not job.is_dead_lettered
+
+    def test_failed_at_exhaustion_is_dead_lettered(self) -> None:
+        job = IngestionJob(source_id=uuid7())
+        for _ in range(3):
+            job.start()
+            job.fail("boom")
+            if job.can_retry:
+                job.retry()
+        assert job.attempts == 3
+        assert job.is_dead_lettered
+        assert not job.can_retry
+
+    def test_succeeded_is_never_dead_lettered(self) -> None:
+        job = IngestionJob(source_id=uuid7())
+        job.start()
+        job.succeed()
+        assert not job.is_dead_lettered
