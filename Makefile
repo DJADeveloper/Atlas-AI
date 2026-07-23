@@ -44,3 +44,6 @@ db-reset: ## Return to empty and re-migrate from scratch
 
 db-revision: ## Autogenerate a migration (hand-review required; docs/11 §5). Usage: make db-revision m="add xyz"
 	cd apps/api && uv run alembic revision --autogenerate -m "$(m)"
+
+test-e2e: ## Long-running corpus suites (nightly gate)
+	scripts/ci/test-e2e.sh

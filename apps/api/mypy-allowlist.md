@@ -13,7 +13,7 @@ None. The codebase currently contains zero `# type: ignore` comments.
 |---|---|---|---|
 | `testcontainers.*` | `ignore_missing_imports` | The `testcontainers` distribution ships no `py.typed` marker, so strict mode rejects the import (`import-untyped`). Used only by `tests/integration/`; `src/atlas` never imports it. | testcontainers/testcontainers-python — py.typed marker not yet published; re-check on each dependency bump. |
 | `atlas.infrastructure.parsing.pdf_parser` | `disallow_untyped_calls = false` | PyMuPDF ships partial annotations; calling `pymupdf.open`/page methods trips `no-untyped-call` at our call sites. Scoped to the single adapter touching pymupdf. | pymupdf — typing coverage incomplete; re-check on each dependency bump. |
-| `tests.unit.test_parsers`, `tests.integration.test_ingestion_flow` | `disallow_untyped_calls = false`; `disable_error_code = attr-defined, no-any-return` | PDF fixture helpers call `pymupdf.open`/`Document.tobytes`/`save` and `PDF_ENCRYPT_AES_256`, missing from pymupdf's stubs despite existing at runtime. Test-fixture modules only. | pymupdf — stubs incomplete; re-check on bumps. |
+| `tests.unit.test_parsers`, `tests.integration.test_ingestion_flow`, `tests.pdfgen` | `disallow_untyped_calls = false`; `disable_error_code = attr-defined, no-any-return` | PDF fixture helpers call `pymupdf.open`/`Document.tobytes`/`save` and `PDF_ENCRYPT_AES_256`, missing from pymupdf's stubs despite existing at runtime. Test-fixture modules only. | pymupdf — stubs incomplete; re-check on bumps. |
 
 Any new entry requires: module name, the exact relaxation, why it is
 unavoidable, and the upstream issue or condition under which it gets removed.

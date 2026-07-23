@@ -38,7 +38,10 @@ async def test_created_file_has_a_job_row_within_five_seconds(
         workspace_id = await ensure_default_workspace(factory, name="W")
         registry = default_registry()
         dispatcher = FakeDispatcher()
-        uow_factory = lambda: SqlAlchemyUnitOfWork(factory)  # noqa: E731
+
+        def uow_factory() -> SqlAlchemyUnitOfWork:
+            return SqlAlchemyUnitOfWork(factory)
+
         detect = DetectChanges(
             uow_factory=uow_factory,
             file_store=LocalFileStore(),

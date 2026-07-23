@@ -29,13 +29,14 @@ production-grade system built on six commitments:
 
 **Architecture: approved and frozen** — the founding package (28 deliverables
 and a 25-milestone plan) lives in [`docs/`](docs/README.md); changes require
-an ADR. **Implementation: M03 (Database core & domain skeleton) delivered** — the
-reversible Alembic baseline for all ten foundational tables (pgvector
-HNSW + FTS included), UUIDv7 identities, the pure-Python knowledge
-domain with workspace-scoped repository ports, a SQLAlchemy Unit of
-Work, DB-backed feature flags, and an append-only audit table enforced
-at the database — on top of M01/M02's scaffolding, probes, config, DI,
-logging, and error spine.
+an ADR. **Implementation: M04 (Ingestion v1) delivered** — watched
+folders become versioned document records through a resilient Celery
+pipeline: watchfiles with a 2 s debounce, MD/TXT/PDF parsers behind
+the domain port, a SHA-256 hash gate (unchanged content never makes a
+new version), a 30/120/600 s retry ladder into a queryable dead-letter
+state, source/job APIs, and startup migrations — on M01–M03's
+scaffolding, config/DI/logging spine, and workspace-scoped
+persistence.
 
 ## Quickstart
 
@@ -45,8 +46,14 @@ make install                 # Python 3.12 env (uv) + JS workspace (pnpm)
 make up                      # compose core profile: postgres+pgvector, redis, api
 curl localhost:8000/health   # {"status":"ok","version":"0.1.0"}
 curl localhost:8000/ready    # {"status":"ready","checks":{...}}
+mkdir -p sandbox/notes && echo "# Hello" > sandbox/notes/hi.md
+curl -X POST localhost:8000/api/v1/sources \
+  -H 'content-type: application/json' \
+  -d '{"name":"Notes","uri":"/data/notes"}'   # registers + starts indexing
+curl "localhost:8000/api/v1/jobs?limit=10"    # watch ingestion progress
 make ci-local                # the exact gates CI runs: lint, types, tests, compose
-make test-integration        # readiness tests against real containers
+make test-integration        # integration suites against real containers
+make test-e2e                # nightly 1,000-file corpus run
 ```
 
 ## Architecture at a glance

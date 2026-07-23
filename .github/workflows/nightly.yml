@@ -1,0 +1,24 @@
+# Nightly suites (docs/53): long-running E2E that would blow the PR
+# budget — today the M04 1,000-file corpus; eval trend runs join at M11.
+name: nightly
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - run: uv sync --frozen --project apps/api
+      - run: scripts/ci/test-e2e.sh

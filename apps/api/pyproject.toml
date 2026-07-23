@@ -96,7 +96,7 @@ module = "atlas.infrastructure.parsing.pdf_parser"
 disallow_untyped_calls = false
 
 [[tool.mypy.overrides]]
-module = ["tests.unit.test_parsers", "tests.integration.test_ingestion_flow"]
+module = ["tests.unit.test_parsers", "tests.integration.test_ingestion_flow", "tests.pdfgen"]
 disallow_untyped_calls = false
 disable_error_code = ["attr-defined", "no-any-return"]
 
@@ -132,6 +132,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
   "integration: requires a container runtime (testcontainers); excluded from the default fast run",
+  "slow: long-running E2E suites; nightly CI only",
 ]
 addopts = "-ra --strict-markers"
 

@@ -27,7 +27,10 @@ class Rig:
         self.files = FakeFileStore({URI: {}})
         self.dispatcher = FakeDispatcher()
         registry = default_registry()
-        uow_factory = lambda: FakeUnitOfWork(self.state)  # noqa: E731
+
+        def uow_factory() -> FakeUnitOfWork:
+            return FakeUnitOfWork(self.state)
+
         self.detect = DetectChanges(
             uow_factory=uow_factory,
             file_store=self.files,
