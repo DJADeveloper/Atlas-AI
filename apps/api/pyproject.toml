@@ -75,8 +75,9 @@ max-args = 6
 
 [tool.ruff.lint.per-file-ignores]
 # Test code idioms, configured here rather than as inline suppressions:
-# S101 - pytest uses bare assert; PLR2004 - literal expectations are the point.
-"tests/**" = ["S101", "PLR2004", "ASYNC240"]
+# S101 - pytest uses bare assert; PLR2004 - literal expectations are the
+# point; S311 - seeded random builds deterministic fixtures, not secrets.
+"tests/**" = ["S101", "PLR2004", "ASYNC240", "S311"]
 
 [tool.mypy]
 strict = true
@@ -109,12 +110,12 @@ include_external_packages = true
 [[tool.importlinter.contracts]]
 name = "Clean Architecture layer ordering"
 type = "layers"
-layers = ["atlas.presentation", "atlas.application", "atlas.domain"]
+layers = ["atlas.presentation", "atlas.application", "atlas.rag", "atlas.domain"]
 
 [[tool.importlinter.contracts]]
 name = "Domain and shared stay framework-free"
 type = "forbidden"
-source_modules = ["atlas.domain", "atlas.shared"]
+source_modules = ["atlas.domain", "atlas.shared", "atlas.rag"]
 forbidden_modules = [
   "fastapi",
   "starlette",
