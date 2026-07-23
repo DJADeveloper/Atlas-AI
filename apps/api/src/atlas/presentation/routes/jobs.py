@@ -21,6 +21,7 @@ class JobView(BaseModel):
     source_id: UUID
     document_id: UUID | None
     state: str
+    stage: str
     dead_letter: bool
     attempts: int
     error: str | None
@@ -36,6 +37,7 @@ class JobView(BaseModel):
             source_id=job.source_id,
             document_id=job.document_id,
             state=job.state,
+            stage=job.stage,
             dead_letter=job.is_dead_lettered,
             attempts=job.attempts,
             error=job.error,

@@ -14,7 +14,10 @@ from atlas.application.ingestion import DetectChanges, EmbedDocument, IngestDocu
 from atlas.config.settings import Settings
 from atlas.domain.knowledge.entities import Source
 from atlas.infrastructure.jobs.runtime import WorkerRuntime, set_runtime
-from atlas.infrastructure.jobs.worker import execute_ingestion_attempt
+from atlas.infrastructure.jobs.worker import (
+    execute_embed_attempt,
+    execute_ingestion_attempt,
+)
 from atlas.infrastructure.parsing import default_registry
 from atlas.observability.logging import configure_logging
 from atlas.shared.ids import uuid7
@@ -99,3 +102,27 @@ def test_attempt_maps_retry_outcome_with_delay() -> None:
         set_runtime(None)
     assert outcome.result == "retry_scheduled"
     assert outcome.retry_delay_seconds == 30
+
+
+def test_embed_attempt_completes_the_pipeline() -> None:
+    """The two worker shells drive one job to success: parse hands off
+    ('chunked'), embed finishes ('succeeded') with stage-tagged logs."""
+    state = FakeState()
+    files = FakeFileStore({URI: {"a.md": b"# Hello\n\nWorld body."}})
+    workspace_id, job_id = asyncio.run(_prepare(state, files))
+
+    set_runtime(_fake_runtime(state, files))
+    try:
+        buffer = io.StringIO()
+        configure_logging("INFO", stream=buffer)
+        parse_outcome = execute_ingestion_attempt(workspace_id, job_id, "trace-embed-1")
+        embed_outcome = execute_embed_attempt(workspace_id, job_id, "trace-embed-1")
+    finally:
+        set_runtime(None)
+
+    assert parse_outcome.result == "chunked"
+    assert embed_outcome.result == "succeeded"
+    events = [json.loads(line) for line in buffer.getvalue().splitlines() if line]
+    finished = [e for e in events if e["event"] == "ingestion.attempt_finished"]
+    assert [e["stage"] for e in finished] == ["parse", "embed"]
+    assert all(e["trace_id"] == "trace-embed-1" for e in finished)

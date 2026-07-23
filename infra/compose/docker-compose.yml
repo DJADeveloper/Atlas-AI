@@ -87,6 +87,11 @@ services:
     environment:
       ATLAS_DATABASE_URL: postgresql+asyncpg://atlas:atlas@postgres:5432/atlas
       ATLAS_REDIS_URL: redis://redis:6379/0
+      # Ollama runs on the HOST (local-first: models live with the user's
+      # data, not in the stack); host-gateway reaches it from the container.
+      ATLAS_OLLAMA_URL: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command:
       [
         "celery",
@@ -95,7 +100,7 @@ services:
         "worker",
         "--loglevel=INFO",
         "-Q",
-        "ingest.parse",
+        "ingest.parse,ingest.embed",
       ]
     volumes:
       - ../../apps/api/src:/app/src

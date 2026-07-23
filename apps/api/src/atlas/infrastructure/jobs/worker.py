@@ -9,7 +9,7 @@ idempotent hash gate). The retry ladder maps 1:1 — the use case decides
 """
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import structlog
@@ -18,7 +18,11 @@ from celery.signals import worker_ready, worker_shutdown
 
 from atlas.application.ingestion import IngestOutcome
 from atlas.config.settings import load_settings
-from atlas.infrastructure.jobs.celery_app import INGEST_TASK_NAME, create_celery_app
+from atlas.infrastructure.jobs.celery_app import (
+    EMBED_TASK_NAME,
+    INGEST_TASK_NAME,
+    create_celery_app,
+)
 from atlas.infrastructure.jobs.dispatcher import CeleryIngestionDispatcher
 from atlas.infrastructure.jobs.runtime import get_runtime
 from atlas.infrastructure.watcher.main import WatcherThread
@@ -44,23 +48,37 @@ def _stop_watcher(**_kwargs: Any) -> None:
     _logger.info("watcher.thread_stopped")
 
 
-def execute_ingestion_attempt(
-    workspace_id: str, job_id: str, trace_id: str | None
+def _run_attempt(
+    stage: Literal["parse", "embed"], workspace_id: str, job_id: str, trace_id: str | None
 ) -> IngestOutcome:
     """One attempt, fully logged and trace-correlated (shared with tests)."""
     clear_log_context()
     if trace_id:
         bind_trace_id(trace_id)
     runtime = get_runtime()
-    outcome = asyncio.run(runtime.ingest_document.execute(UUID(workspace_id), UUID(job_id)))
+    use_case = runtime.ingest_document if stage == "parse" else runtime.embed_document
+    outcome = asyncio.run(use_case.execute(UUID(workspace_id), UUID(job_id)))
     _logger.info(
         "ingestion.attempt_finished",
+        stage=stage,
         job_id=job_id,
         result=outcome.result,
         retry_delay_seconds=outcome.retry_delay_seconds,
         detail=outcome.detail,
     )
     return outcome
+
+
+def execute_ingestion_attempt(
+    workspace_id: str, job_id: str, trace_id: str | None
+) -> IngestOutcome:
+    """Parse+chunk attempt; hands off to ingest.embed via the dispatcher."""
+    return _run_attempt("parse", workspace_id, job_id, trace_id)
+
+
+def execute_embed_attempt(workspace_id: str, job_id: str, trace_id: str | None) -> IngestOutcome:
+    """Embed+index attempt: cache-first vectors, then the atomic swap."""
+    return _run_attempt("embed", workspace_id, job_id, trace_id)
 
 
 @celery_app.task(bind=True, name=INGEST_TASK_NAME, max_retries=3)
@@ -71,6 +89,19 @@ def ingest_document_task(
     trace_id: str | None = None,
 ) -> str:
     outcome = execute_ingestion_attempt(workspace_id, job_id, trace_id)
+    if outcome.result == "retry_scheduled":
+        raise self.retry(countdown=outcome.retry_delay_seconds)
+    return outcome.result
+
+
+@celery_app.task(bind=True, name=EMBED_TASK_NAME, max_retries=3)
+def embed_document_task(
+    self: "Task[[str, str, str | None], str]",
+    workspace_id: str,
+    job_id: str,
+    trace_id: str | None = None,
+) -> str:
+    outcome = execute_embed_attempt(workspace_id, job_id, trace_id)
     if outcome.result == "retry_scheduled":
         raise self.retry(countdown=outcome.retry_delay_seconds)
     return outcome.result
