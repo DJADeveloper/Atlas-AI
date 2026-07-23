@@ -258,6 +258,27 @@ heap and index, and HNSW pages are never shrunk by VACUUM. Therefore:
   and schedules `REINDEX INDEX CONCURRENTLY` on the HNSW index when bloat
   exceeds ~40% — off-hours, progress-visible in the jobs UI.
 
+### 6.1 Ingestion throughput benchmarks (M05)
+
+Indexing throughput is a published number, not a feeling. The harness is
+`apps/api/scripts/ingest_throughput.py` (`make bench-ingest`): it generates a
+deterministic MD/TXT corpus, drives the real detect → parse → chunk → embed →
+swap pipeline against a disposable pgvector Postgres, and reports docs/hour
+**with the hardware that produced it** — a throughput figure is honest only
+next to its machine. `--provider ollama` measures end-to-end with the real
+`nomic-embed-text`; `--provider fake` isolates parse+chunk+storage cost.
+
+The nightly workflow runs the real-model configuration (300 docs) and
+archives `benchmark.json` as the `ingest-throughput-benchmark` CI artifact,
+so regressions surface as a trend, not an anecdote.
+
+| Date | Environment | Hardware | Provider | Docs | Result |
+|---|---|---|---|---|---|
+| pending first nightly run | GitHub Actions `ubuntu-latest` | recorded in the artifact by the script | ollama / nomic-embed-text | 300 | acceptance floor: ≥ 500 MD/TXT docs/hour |
+
+Reference-laptop numbers join this table when the benchmark first runs on the
+documented developer machine (`make bench-ingest args="--provider ollama"`).
+
 ## 7. Backup and recovery
 
 ### 7.1 What is backed up

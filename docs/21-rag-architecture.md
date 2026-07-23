@@ -96,6 +96,20 @@ metrics. Stage payloads are passed by reference (job id), never by value;
 intermediate parse/chunk output is persisted so any stage can resume from the
 previous stage's committed output.
 
+> **Conformance note (M05 implementation).** The four stages are realized as
+> **two** Celery tasks on two queues: `atlas.ingest_document` (`ingest.parse`)
+> fuses parse+chunk, and `atlas.embed_document` (`ingest.embed`) fuses
+> embed+index. Parse and chunk both recompute deterministically from the file
+> bytes, and parse output is deliberately not persisted as blocks (that would
+> duplicate corpus bytes in the database) — so a separate chunk task would
+> re-read and re-parse anyway, making the split pure overhead. Embed and index
+> fuse because the swap must follow the vectors it swaps in. Everything this
+> section's design exists FOR is preserved: the staged (unembedded) chunk rows
+> are the persisted intermediate, an Ollama outage retries only the embed
+> queue, the job row records all four stages (`jobs.stage`), and the embed
+> stage commits before the flip transaction. Revisit the finer split when
+> per-stage queue metrics justify it (M08 observability).
+
 **Idempotency / safe re-runs.** Celery is at-least-once; duplicate delivery is
 a certainty, not an edge case. Every stage is written to be re-runnable:
 

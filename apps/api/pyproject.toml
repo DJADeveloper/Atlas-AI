@@ -79,11 +79,13 @@ max-args = 6
 # S101 - pytest uses bare assert; PLR2004 - literal expectations are the
 # point; S311 - seeded random builds deterministic fixtures, not secrets.
 "tests/**" = ["S101", "PLR2004", "ASYNC240", "S311"]
+# Benchmark corpora are seeded-random fixtures too (S311, same reasoning).
+"scripts/**" = ["S311"]
 
 [tool.mypy]
 strict = true
 python_version = "3.12"
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
 mypy_path = "src"
 pretty = true
 show_error_codes = true

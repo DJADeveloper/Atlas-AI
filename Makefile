@@ -47,3 +47,6 @@ db-revision: ## Autogenerate a migration (hand-review required; docs/11 §5). Us
 
 test-e2e: ## Long-running corpus suites (nightly gate)
 	scripts/ci/test-e2e.sh
+
+bench-ingest: ## Ingestion throughput benchmark (docs/41 §benchmarks). Usage: make bench-ingest [args="--provider ollama"]
+	cd apps/api && uv run python scripts/ingest_throughput.py $(args)

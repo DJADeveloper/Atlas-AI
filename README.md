@@ -29,14 +29,17 @@ production-grade system built on six commitments:
 
 **Architecture: approved and frozen** — the founding package (28 deliverables
 and a 25-milestone plan) lives in [`docs/`](docs/README.md); changes require
-an ADR. **Implementation: M04 (Ingestion v1) delivered** — watched
-folders become versioned document records through a resilient Celery
-pipeline: watchfiles with a 2 s debounce, MD/TXT/PDF parsers behind
-the domain port, a SHA-256 hash gate (unchanged content never makes a
-new version), a 30/120/600 s retry ladder into a queryable dead-letter
-state, source/job APIs, and startup migrations — on M01–M03's
-scaffolding, config/DI/logging spine, and workspace-scoped
-persistence.
+an ADR. **Implementation: M05 (Chunking & embeddings) delivered** —
+ingested documents now become retrievable, locally-embedded chunks:
+structure-aware chunking over a per-format block IR (512-token target,
+15% overlap, 1,024 hard max, breadcrumb-prefixed embedded text), a
+`nomic-embed-text` Ollama adapter behind the embedding port (768d,
+batched, task-prefixed), Postgres-as-embedding-cache keyed by
+`(model, content_hash)` so unchanged content is never re-embedded, an
+atomic index swap per document version, HNSW cosine search proven by
+`EXPLAIN`, and a scripted nightly throughput benchmark — on the
+M01–M04 pipeline: watched folders, hash gate, retry ladder into
+dead-letter, source/job APIs.
 
 ## Quickstart
 
