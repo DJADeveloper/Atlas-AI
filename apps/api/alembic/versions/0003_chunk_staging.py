@@ -27,8 +27,11 @@ def upgrade() -> None:
     op.add_column("chunks", sa.Column("content_hash", sa.Text(), nullable=False))
     op.alter_column("chunks", "embedding", nullable=True)
     op.alter_column("chunks", "embedding_model", nullable=True)
+    # Bare names here: the naming convention on the model MetaData is in
+    # force for op.* directives too, so "embedding_paired" renders as
+    # ck_chunks_embedding_paired — passing the full name would double it.
     op.create_check_constraint(
-        "ck_chunks_embedding_paired",
+        "embedding_paired",
         "chunks",
         "(embedding IS NULL) = (embedding_model IS NULL)",
     )
@@ -39,7 +42,7 @@ def upgrade() -> None:
         sa.Column("stage", sa.Text(), server_default=sa.text("'parse'"), nullable=False),
     )
     op.create_check_constraint(
-        "ck_ingestion_jobs_stage_allowed",
+        "stage_allowed",
         "ingestion_jobs",
         "stage IN ('parse', 'chunk', 'embed', 'index')",
     )
