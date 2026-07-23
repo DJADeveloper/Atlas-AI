@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     # bare dev servers migrate explicitly via make db-upgrade.
     run_migrations_on_startup: bool = False
 
+    # Embeddings are local in EVERY profile (docs/21 §6, privacy
+    # decision); /ready deliberately does not depend on Ollama.
+    ollama_url: str = "http://localhost:11434"
+    embedding_model: str = "nomic-embed-text"
+    embedding_batch_size: int = 32
+    embedding_concurrency: int = 2
+
     feature_flags: dict[str, bool] = Field(default_factory=dict)
 
     @property
