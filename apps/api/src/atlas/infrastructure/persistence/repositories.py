@@ -17,7 +17,7 @@ transaction. Commit remains the UoW's decision.
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import CursorResult, Select, func, select
+from sqlalchemy import CursorResult, Select, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,7 @@ from atlas.infrastructure.persistence.mappers import (
     job_to_row,
     source_from_row,
     source_to_row,
+    vector_from_row,
     version_from_row,
     version_to_row,
 )
@@ -52,7 +53,7 @@ from atlas.infrastructure.persistence.tables import (
     IngestionJobRow,
     SourceRow,
 )
-from atlas.shared.errors import Conflict, NotFound
+from atlas.shared.errors import Conflict, NotFound, ValidationFailed
 
 
 def _scoped_documents(workspace_id: UUID) -> Select[tuple[DocumentRow]]:
@@ -186,6 +187,17 @@ class SqlDocumentVersionRepository:
         row = (await self._session.execute(stmt)).scalar_one_or_none()
         return version_from_row(row) if row is not None else None
 
+    async def get_by_hash(
+        self, workspace_id: UUID, document_id: UUID, content_hash: str
+    ) -> DocumentVersion | None:
+        stmt = (
+            _scoped_versions(workspace_id)
+            .where(DocumentVersionRow.document_id == document_id)
+            .where(DocumentVersionRow.content_hash == content_hash)
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return version_from_row(row) if row is not None else None
+
     async def list_for_document(
         self, workspace_id: UUID, document_id: UUID
     ) -> list[DocumentVersion]:
@@ -224,6 +236,56 @@ class SqlChunkRepository:
     async def count_for_version(self, workspace_id: UUID, version_id: UUID) -> int:
         stmt = select(func.count()).select_from(self._scoped(workspace_id, version_id).subquery())
         return (await self._session.execute(stmt)).scalar_one()
+
+    async def count_embedded_for_version(self, workspace_id: UUID, version_id: UUID) -> int:
+        scoped = self._scoped(workspace_id, version_id).where(ChunkRow.embedding.is_not(None))
+        stmt = select(func.count()).select_from(scoped.subquery())
+        return (await self._session.execute(stmt)).scalar_one()
+
+    async def find_embeddings(
+        self, workspace_id: UUID, embedding_model: str, content_hashes: Sequence[str]
+    ) -> dict[str, tuple[float, ...]]:
+        if not content_hashes:
+            return {}
+        stmt = (
+            select(ChunkRow.content_hash, ChunkRow.embedding)
+            .join(DocumentVersionRow, ChunkRow.document_version_id == DocumentVersionRow.id)
+            .join(DocumentRow, DocumentVersionRow.document_id == DocumentRow.id)
+            .join(SourceRow, DocumentRow.source_id == SourceRow.id)
+            .where(SourceRow.workspace_id == workspace_id)
+            .where(ChunkRow.embedding_model == embedding_model)
+            .where(ChunkRow.content_hash.in_(set(content_hashes)))
+            .where(ChunkRow.embedding.is_not(None))
+        )
+        found: dict[str, tuple[float, ...]] = {}
+        for content_hash, raw in (await self._session.execute(stmt)).all():
+            vector = vector_from_row(raw)
+            if vector is not None:  # guarded by the query; keeps types honest
+                found[content_hash] = vector
+        return found
+
+    async def save_embeddings(self, chunks: Sequence[Chunk]) -> None:
+        for chunk in chunks:
+            if chunk.embedding is None:
+                raise ValidationFailed(f"chunk {chunk.id} has no embedding to save")
+            stmt = (
+                update(ChunkRow)
+                .where(ChunkRow.id == chunk.id)
+                .values(
+                    embedding=list(chunk.embedding),
+                    embedding_model=chunk.embedding_model,
+                )
+            )
+            await self._session.execute(stmt)
+
+    async def delete_for_document_except(self, document_id: UUID, keep_version_id: UUID) -> None:
+        versions = (
+            select(DocumentVersionRow.id)
+            .where(DocumentVersionRow.document_id == document_id)
+            .where(DocumentVersionRow.id != keep_version_id)
+        )
+        stmt = delete(ChunkRow).where(ChunkRow.document_version_id.in_(versions))
+        await self._session.execute(stmt)
 
 
 class SqlIngestionJobRepository:

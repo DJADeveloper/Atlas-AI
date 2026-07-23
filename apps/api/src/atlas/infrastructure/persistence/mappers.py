@@ -176,7 +176,7 @@ def chunk_to_row(entity: Chunk) -> ChunkRow:
     )
 
 
-def _vector_from_row(raw: Any) -> tuple[float, ...] | None:
+def vector_from_row(raw: Any) -> tuple[float, ...] | None:
     """pgvector returns numpy-like arrays or lists depending on driver path."""
     if raw is None:
         return None
@@ -194,7 +194,7 @@ def chunk_from_row(row: ChunkRow) -> Chunk:
         content_hash=ContentHash(row.content_hash),
         heading_path=tuple(row.heading_path),
         meta=dict(row.meta),
-        embedding=_vector_from_row(row.embedding),
+        embedding=vector_from_row(row.embedding),
         embedding_model=row.embedding_model,
         created_at=row.created_at,
     )

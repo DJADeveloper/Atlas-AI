@@ -8,7 +8,12 @@ from uuid import UUID
 
 from celery import Celery
 
-from atlas.infrastructure.jobs.celery_app import INGEST_QUEUE, INGEST_TASK_NAME
+from atlas.infrastructure.jobs.celery_app import (
+    EMBED_QUEUE,
+    EMBED_TASK_NAME,
+    INGEST_QUEUE,
+    INGEST_TASK_NAME,
+)
 
 
 class CeleryIngestionDispatcher:
@@ -20,4 +25,11 @@ class CeleryIngestionDispatcher:
             INGEST_TASK_NAME,
             args=[str(workspace_id), str(job_id), trace_id],
             queue=INGEST_QUEUE,
+        )
+
+    def dispatch_embed(self, workspace_id: UUID, job_id: UUID, trace_id: str | None = None) -> None:
+        self._celery.send_task(
+            EMBED_TASK_NAME,
+            args=[str(workspace_id), str(job_id), trace_id],
+            queue=EMBED_QUEUE,
         )

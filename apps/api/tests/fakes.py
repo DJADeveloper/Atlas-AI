@@ -121,6 +121,18 @@ class FakeDocumentVersionRepository:
     async def add(self, version: DocumentVersion) -> None:
         self.pending[version.id] = version  # frozen dataclass: safe to share
 
+    async def get_by_hash(
+        self, workspace_id: UUID, document_id: UUID, content_hash: str
+    ) -> DocumentVersion | None:
+        return next(
+            (
+                v
+                for v in self._visible(workspace_id)
+                if v.document_id == document_id and str(v.content_hash) == content_hash
+            ),
+            None,
+        )
+
     def _visible(self, workspace_id: UUID) -> list[DocumentVersion]:
         merged = {**self.state.versions, **self.pending}
         docs = {
@@ -145,21 +157,61 @@ class FakeDocumentVersionRepository:
 @dataclass
 class FakeChunkRepository:
     state: FakeState
+    versions: FakeDocumentVersionRepository
     pending: dict[UUID, Chunk] = field(default_factory=dict)
+    deleted: set[UUID] = field(default_factory=set)
 
     async def add_all(self, chunks: Sequence[Chunk]) -> None:
         for chunk in chunks:
             self.pending[chunk.id] = chunk
 
-    async def list_for_version(self, workspace_id: UUID, version_id: UUID) -> list[Chunk]:
+    def _merged(self) -> dict[UUID, Chunk]:
         merged = {**self.state.chunks, **self.pending}
+        return {cid: c for cid, c in merged.items() if cid not in self.deleted}
+
+    async def list_for_version(self, workspace_id: UUID, version_id: UUID) -> list[Chunk]:
         return sorted(
-            (c for c in merged.values() if c.document_version_id == version_id),
+            (c for c in self._merged().values() if c.document_version_id == version_id),
             key=lambda c: c.ordinal,
         )
 
     async def count_for_version(self, workspace_id: UUID, version_id: UUID) -> int:
         return len(await self.list_for_version(workspace_id, version_id))
+
+    async def count_embedded_for_version(self, workspace_id: UUID, version_id: UUID) -> int:
+        chunks = await self.list_for_version(workspace_id, version_id)
+        return sum(1 for c in chunks if c.is_embedded)
+
+    async def find_embeddings(
+        self, workspace_id: UUID, embedding_model: str, content_hashes: Sequence[str]
+    ) -> dict[str, tuple[float, ...]]:
+        wanted = set(content_hashes)
+        found: dict[str, tuple[float, ...]] = {}
+        for chunk in self._merged().values():
+            if (
+                chunk.embedding is not None
+                and chunk.embedding_model == embedding_model
+                and str(chunk.content_hash) in wanted
+            ):
+                found[str(chunk.content_hash)] = chunk.embedding
+        return found
+
+    async def save_embeddings(self, chunks: Sequence[Chunk]) -> None:
+        for chunk in chunks:
+            if chunk.embedding is None:
+                raise NotFound(f"chunk {chunk.id} has no embedding to save")
+            self.pending[chunk.id] = chunk
+
+    async def delete_for_document_except(self, document_id: UUID, keep_version_id: UUID) -> None:
+        version_ids = {
+            v.id
+            for v in {**self.state.versions, **self.versions.pending}.values()
+            if v.document_id == document_id and v.id != keep_version_id
+        }
+        for chunk_id, chunk in list(self._merged().items()):
+            if chunk.document_version_id in version_ids:
+                self.pending.pop(chunk_id, None)
+                self.deleted.add(chunk_id)  # applied to state at commit
 
 
 @dataclass
@@ -239,7 +291,7 @@ class FakeUnitOfWork:
         self.sources = FakeSourceRepository(self._state)
         self.documents = FakeDocumentRepository(self._state)
         self.document_versions = FakeDocumentVersionRepository(self._state, self.documents)
-        self.chunks = FakeChunkRepository(self._state)
+        self.chunks = FakeChunkRepository(self._state, self.document_versions)
         self.ingestion_jobs = FakeIngestionJobRepository(self._state)
         return self
 
@@ -256,6 +308,8 @@ class FakeUnitOfWork:
         self._state.documents.update(self.documents.pending)
         self._state.versions.update(self.document_versions.pending)
         self._state.chunks.update(self.chunks.pending)
+        for chunk_id in self.chunks.deleted:
+            self._state.chunks.pop(chunk_id, None)
         self._state.jobs.update(self.ingestion_jobs.pending)
 
     async def rollback(self) -> None:
@@ -263,6 +317,7 @@ class FakeUnitOfWork:
         self.documents.pending.clear()
         self.document_versions.pending.clear()
         self.chunks.pending.clear()
+        self.chunks.deleted.clear()
         self.ingestion_jobs.pending.clear()
 
 
@@ -291,6 +346,43 @@ class FakeFileStore:
 class FakeDispatcher:
     def __init__(self) -> None:
         self.dispatched: list[tuple[UUID, UUID, str | None]] = []
+        self.embed_dispatched: list[tuple[UUID, UUID, str | None]] = []
 
     def dispatch(self, workspace_id: UUID, job_id: UUID, trace_id: str | None = None) -> None:
         self.dispatched.append((workspace_id, job_id, trace_id))
+
+    def dispatch_embed(self, workspace_id: UUID, job_id: UUID, trace_id: str | None = None) -> None:
+        self.embed_dispatched.append((workspace_id, job_id, trace_id))
+
+
+class FakeEmbeddingProvider:
+    """Deterministic vectors derived from the text digest.
+
+    ``calls`` records every batch verbatim — M05's cache-hit acceptance
+    criterion ("zero embedding provider calls") is asserted against it.
+    """
+
+    def __init__(self, dimensions: int = 8, model: str = "fake-embed") -> None:
+        self.dimensions = dimensions
+        self._model = model
+        self.calls: list[list[str]] = []
+
+    @property
+    def model(self) -> str:
+        return self._model
+
+    @property
+    def total_texts_embedded(self) -> int:
+        return sum(len(batch) for batch in self.calls)
+
+    def _vector(self, text: str) -> tuple[float, ...]:
+        digest = hashlib.sha256(text.encode()).digest()
+        return tuple(digest[i % len(digest)] / 255.0 for i in range(self.dimensions))
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[tuple[float, ...]]:
+        self.calls.append(list(texts))
+        return [self._vector(text) for text in texts]
+
+    async def embed_query(self, text: str) -> tuple[float, ...]:
+        self.calls.append([text])
+        return self._vector(text)

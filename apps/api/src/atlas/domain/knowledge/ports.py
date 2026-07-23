@@ -45,6 +45,13 @@ class DocumentRepository(Protocol):
 class DocumentVersionRepository(Protocol):
     async def add(self, version: DocumentVersion) -> None: ...
     async def get(self, workspace_id: UUID, version_id: UUID) -> DocumentVersion | None: ...
+    async def get_by_hash(
+        self, workspace_id: UUID, document_id: UUID, content_hash: str
+    ) -> DocumentVersion | None:
+        """The (document_id, content_hash) identity lookup — how the embed
+        stage finds the version a job refers to (M05)."""
+        ...
+
     async def list_for_document(
         self, workspace_id: UUID, document_id: UUID
     ) -> list[DocumentVersion]: ...
@@ -54,6 +61,27 @@ class ChunkRepository(Protocol):
     async def add_all(self, chunks: Sequence[Chunk]) -> None: ...
     async def list_for_version(self, workspace_id: UUID, version_id: UUID) -> list[Chunk]: ...
     async def count_for_version(self, workspace_id: UUID, version_id: UUID) -> int: ...
+    async def count_embedded_for_version(self, workspace_id: UUID, version_id: UUID) -> int:
+        """Embedded (vector non-null) chunks only — the detect sweep uses
+        this to tell a fully indexed version from a staged one (M05)."""
+        ...
+
+    async def find_embeddings(
+        self, workspace_id: UUID, embedding_model: str, content_hashes: Sequence[str]
+    ) -> dict[str, tuple[float, ...]]:
+        """Embedding-cache lookup (docs/21 §6): existing vectors for the
+        given (embedding_model, content_hash) pairs, keyed by hash.
+        Postgres is the cache — chunk rows themselves hold the vectors."""
+        ...
+
+    async def save_embeddings(self, chunks: Sequence[Chunk]) -> None:
+        """Persist vectors onto previously staged rows, by chunk id."""
+        ...
+
+    async def delete_for_document_except(self, document_id: UUID, keep_version_id: UUID) -> None:
+        """The swap's delete half (docs/21 §3): drop every chunk of the
+        document's other versions in the flip transaction."""
+        ...
 
 
 class IngestionJobRepository(Protocol):

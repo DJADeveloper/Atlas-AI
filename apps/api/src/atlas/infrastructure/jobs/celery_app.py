@@ -6,6 +6,10 @@ from atlas.config.settings import Settings
 
 INGEST_QUEUE = "ingest.parse"  # queue naming per docs/41 §queues
 INGEST_TASK_NAME = "atlas.ingest_document"
+# Embed stage rides its own queue (M05): an Ollama outage backs up
+# ingest.embed without starving parse work, and vice versa.
+EMBED_QUEUE = "ingest.embed"
+EMBED_TASK_NAME = "atlas.embed_document"
 
 
 def create_celery_app(settings: Settings) -> Celery:

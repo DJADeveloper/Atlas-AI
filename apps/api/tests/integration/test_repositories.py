@@ -303,3 +303,110 @@ class TestIngestionIdempotencyKey:
         async with harness.uow() as uow:
             assert await uow.ingestion_jobs.try_add(rerun) is True
             await uow.commit()
+
+
+class TestChunkStagingAndCache:
+    """M05: staged (unembedded) chunks, the Postgres-as-cache lookup,
+    embedding completion, and the swap's delete half."""
+
+    async def _staged_version(
+        self, harness: Harness, path: str = "staged.md", content_hash: ContentHash = HASH
+    ) -> tuple[Document, DocumentVersion, list[Chunk]]:
+        source = await harness.committed_source(harness.workspace_a, uri=f"/home/u/{path}")
+        document = Document(source_id=source.id, path=path)
+        version = DocumentVersion(
+            document_id=document.id, content_hash=content_hash, size_bytes=5, parser="markdown"
+        )
+        chunks = [
+            Chunk(
+                document_version_id=version.id,
+                ordinal=index,
+                text=f"span {index}",
+                token_count=2,
+                content_hash=ContentHash(f"{index:x}" * 64),
+            )
+            for index in range(3)
+        ]
+        async with harness.uow() as uow:
+            await uow.documents.add(document)
+            await uow.document_versions.add(version)
+            await uow.chunks.add_all(chunks)
+            await uow.commit()
+        return document, version, chunks
+
+    async def test_staged_chunks_round_trip_unembedded(self, harness: Harness) -> None:
+        _, version, chunks = await self._staged_version(harness)
+        async with harness.uow() as uow:
+            loaded = await uow.chunks.list_for_version(harness.workspace_a, version.id)
+            total = await uow.chunks.count_for_version(harness.workspace_a, version.id)
+            embedded = await uow.chunks.count_embedded_for_version(harness.workspace_a, version.id)
+        assert loaded == chunks
+        assert all(not chunk.is_embedded for chunk in loaded)
+        assert (total, embedded) == (3, 0)
+
+    async def test_save_embeddings_completes_staged_rows(self, harness: Harness) -> None:
+        _, version, chunks = await self._staged_version(harness, path="embed.md")
+        completed = [
+            chunk.with_embedding(tuple([0.25] * EMBEDDING_DIM), "nomic-embed-text")
+            for chunk in chunks
+        ]
+        async with harness.uow() as uow:
+            await uow.chunks.save_embeddings(completed)
+            await uow.commit()
+        async with harness.uow() as uow:
+            loaded = await uow.chunks.list_for_version(harness.workspace_a, version.id)
+            embedded = await uow.chunks.count_embedded_for_version(harness.workspace_a, version.id)
+        assert embedded == 3
+        assert loaded == completed
+
+    async def test_find_embeddings_matches_model_and_hash_in_workspace(
+        self, harness: Harness
+    ) -> None:
+        _, _, chunks = await self._staged_version(harness, path="cache.md")
+        completed = [
+            chunk.with_embedding(tuple([0.5] * EMBEDDING_DIM), "nomic-embed-text")
+            for chunk in chunks
+        ]
+        async with harness.uow() as uow:
+            await uow.chunks.save_embeddings(completed)
+            await uow.commit()
+
+        wanted = [str(chunk.content_hash) for chunk in chunks] + ["e" * 64]
+        async with harness.uow() as uow:
+            hits = await uow.chunks.find_embeddings(harness.workspace_a, "nomic-embed-text", wanted)
+            other_model = await uow.chunks.find_embeddings(harness.workspace_a, "other", wanted)
+            other_workspace = await uow.chunks.find_embeddings(
+                harness.workspace_b, "nomic-embed-text", wanted
+            )
+        assert set(hits) == {str(chunk.content_hash) for chunk in chunks}
+        assert all(len(vector) == EMBEDDING_DIM for vector in hits.values())
+        assert other_model == {}
+        assert other_workspace == {}  # the cache never leaks across workspaces
+
+    async def test_delete_for_document_except_clears_old_generations(
+        self, harness: Harness
+    ) -> None:
+        document, old_version, _ = await self._staged_version(harness, path="swap.md")
+        new_version = DocumentVersion(
+            document_id=document.id,
+            content_hash=ContentHash("f" * 64),
+            size_bytes=7,
+            parser="markdown",
+        )
+        new_chunk = Chunk(
+            document_version_id=new_version.id,
+            ordinal=0,
+            text="fresh span",
+            token_count=2,
+            content_hash=ContentHash("d" * 64),
+        )
+        async with harness.uow() as uow:
+            await uow.document_versions.add(new_version)
+            await uow.chunks.add_all([new_chunk])
+            await uow.chunks.delete_for_document_except(document.id, new_version.id)
+            await uow.commit()
+        async with harness.uow() as uow:
+            old = await uow.chunks.count_for_version(harness.workspace_a, old_version.id)
+            fresh = await uow.chunks.list_for_version(harness.workspace_a, new_version.id)
+        assert old == 0
+        assert fresh == [new_chunk]
