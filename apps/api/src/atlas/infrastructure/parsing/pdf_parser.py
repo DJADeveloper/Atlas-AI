@@ -29,7 +29,7 @@ class PdfParser:
         try:
             if document.needs_pass:
                 raise ParseFailed("encrypted", f"password-protected PDF: {path}")
-            pages = [page.get_text() for page in document]
+            pages = [document.load_page(index).get_text() for index in range(document.page_count)]
             text = "\n".join(pages)
             if not text.strip():
                 raise ParseFailed(

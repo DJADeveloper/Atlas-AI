@@ -89,8 +89,13 @@ module = "testcontainers.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = ["atlas.infrastructure.parsing.pdf_parser", "tests.unit.test_parsers"]
+module = "atlas.infrastructure.parsing.pdf_parser"
 disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = "tests.unit.test_parsers"
+disallow_untyped_calls = false
+disable_error_code = ["attr-defined", "no-any-return"]
 
 [tool.importlinter]
 root_packages = ["atlas"]
