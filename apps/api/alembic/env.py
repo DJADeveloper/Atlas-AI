@@ -26,12 +26,15 @@ if _env_url:
 target_metadata = Base.metadata
 
 _MIGRATION_OWNED_TABLES = {"audit_events", "audit_events_default"}
+_MIGRATION_OWNED_INDEXES = {"ingestion_jobs_active_dedupe_idx"}
 
 
 def include_object(
     obj: Any, name: str | None, type_: str, reflected: bool, compare_to: Any
 ) -> bool:
-    return not (type_ == "table" and name in _MIGRATION_OWNED_TABLES)
+    if type_ == "table" and name in _MIGRATION_OWNED_TABLES:
+        return False
+    return not (type_ == "index" and name in _MIGRATION_OWNED_INDEXES)
 
 
 def _configure(connection: Connection | None = None) -> None:

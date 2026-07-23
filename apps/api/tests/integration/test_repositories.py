@@ -257,3 +257,47 @@ class TestUnitOfWork:
         source = await harness.committed_source(harness.workspace_a, uri="/visible")
         async with harness.uow() as uow:
             assert await uow.sources.get(harness.workspace_a, source.id) == source
+
+
+class TestIngestionIdempotencyKey:
+    """M04: at most one active job per (document_id, content_hash)."""
+
+    async def test_try_add_dedupes_active_jobs(self, harness: Harness) -> None:
+        source = await harness.committed_source(harness.workspace_a)
+        document = Document(source_id=source.id, path="dup.md")
+        async with harness.uow() as uow:
+            await uow.documents.add(document)
+            await uow.commit()
+
+        first = IngestionJob(source_id=source.id, document_id=document.id, content_hash="c" * 64)
+        duplicate = IngestionJob(
+            source_id=source.id, document_id=document.id, content_hash="c" * 64
+        )
+        async with harness.uow() as uow:
+            assert await uow.ingestion_jobs.try_add(first) is True
+            assert await uow.ingestion_jobs.try_add(duplicate) is False
+            await uow.commit()
+
+        async with harness.uow() as uow:
+            pending = await uow.ingestion_jobs.list_by_state(harness.workspace_a, "pending")
+        assert [job.id for job in pending] == [first.id]
+
+    async def test_terminal_jobs_do_not_block_new_ones(self, harness: Harness) -> None:
+        source = await harness.committed_source(harness.workspace_a)
+        document = Document(source_id=source.id, path="redo.md")
+        job = IngestionJob(source_id=source.id, document_id=document.id, content_hash="d" * 64)
+        async with harness.uow() as uow:
+            await uow.documents.add(document)
+            await uow.ingestion_jobs.add(job)
+            await uow.commit()
+
+        job.start()
+        job.succeed()
+        async with harness.uow() as uow:
+            await uow.ingestion_jobs.save(job)
+            await uow.commit()
+
+        rerun = IngestionJob(source_id=source.id, document_id=document.id, content_hash="d" * 64)
+        async with harness.uow() as uow:
+            assert await uow.ingestion_jobs.try_add(rerun) is True
+            await uow.commit()

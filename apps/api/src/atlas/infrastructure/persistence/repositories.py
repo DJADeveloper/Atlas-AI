@@ -17,7 +17,8 @@ transaction. Commit remains the UoW's decision.
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import CursorResult, Select, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.domain.knowledge.entities import (
@@ -215,6 +216,29 @@ class SqlIngestionJobRepository:
     async def add(self, job: IngestionJob) -> None:
         self._session.add(job_to_row(job))
         await self._session.flush()
+
+    async def try_add(self, job: IngestionJob) -> bool:
+        row = job_to_row(job)
+        statement = (
+            pg_insert(IngestionJobRow)
+            .values(
+                id=row.id,
+                source_id=row.source_id,
+                document_id=row.document_id,
+                content_hash=row.content_hash,
+                state=row.state,
+                attempts=row.attempts,
+                error=row.error,
+                trace_id=row.trace_id,
+                started_at=row.started_at,
+                finished_at=row.finished_at,
+                created_at=row.created_at,
+                updated_at=row.created_at,
+            )
+            .on_conflict_do_nothing()
+        )
+        result = await self._session.execute(statement)
+        return isinstance(result, CursorResult) and bool(result.rowcount)
 
     async def save(self, job: IngestionJob) -> None:
         row = await self._session.get(IngestionJobRow, job.id)

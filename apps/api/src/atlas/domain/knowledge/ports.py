@@ -57,6 +57,13 @@ class ChunkRepository(Protocol):
 
 class IngestionJobRepository(Protocol):
     async def add(self, job: IngestionJob) -> None: ...
+    async def try_add(self, job: IngestionJob) -> bool:
+        """Race-safe insert honoring the active-job idempotency key
+        (document_id, content_hash): returns False when an equivalent
+        non-terminal job already exists, without poisoning the
+        transaction (M04 duplicate-work mitigation)."""
+        ...
+
     async def save(self, job: IngestionJob) -> None: ...
     async def get(self, workspace_id: UUID, job_id: UUID) -> IngestionJob | None: ...
     async def list_by_state(

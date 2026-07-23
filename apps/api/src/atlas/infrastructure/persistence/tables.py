@@ -194,6 +194,9 @@ class ChunkRow(_CreatedOnly, Base):
 
 class IngestionJobRow(_Stamped, Base):
     __tablename__ = "ingestion_jobs"
+    # The partial unique index ingestion_jobs_active_dedupe_idx
+    # (document_id, content_hash) WHERE state IN ('pending','running') is
+    # migration-owned DDL (0002), excluded from autogenerate in env.py.
     __table_args__ = (
         CheckConstraint(_in_clause("state", INGESTION_STATES), name="state_allowed"),
         Index("ingestion_jobs_state_idx", "state", "created_at"),
@@ -203,6 +206,7 @@ class IngestionJobRow(_Stamped, Base):
     id: Mapped[UUID] = mapped_column(primary_key=True)
     source_id: Mapped[UUID] = mapped_column(ForeignKey("sources.id"))
     document_id: Mapped[UUID | None] = mapped_column(ForeignKey("documents.id"), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     state: Mapped[str] = mapped_column(Text, server_default=sql_text("'pending'"))
     attempts: Mapped[int] = mapped_column(Integer, server_default=sql_text("0"))
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
