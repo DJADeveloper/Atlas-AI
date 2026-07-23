@@ -11,10 +11,13 @@ from dataclasses import dataclass
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from atlas.application.ingestion import IngestDocument
+from atlas.application.ingestion import EmbedDocument, IngestDocument
 from atlas.config.settings import Settings, load_settings
+from atlas.infrastructure.jobs.celery_app import create_celery_app
+from atlas.infrastructure.jobs.dispatcher import CeleryIngestionDispatcher
 from atlas.infrastructure.parsing import default_registry
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
+from atlas.infrastructure.providers.ollama import OllamaEmbeddingProvider
 from atlas.infrastructure.watcher.filesystem import LocalFileStore
 from atlas.observability.logging import configure_logging
 
@@ -24,6 +27,7 @@ class WorkerRuntime:
     settings: Settings
     engine: AsyncEngine
     ingest_document: IngestDocument
+    embed_document: EmbedDocument
 
 
 def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
@@ -35,13 +39,27 @@ def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
     engine = create_async_engine(resolved.database_url, poolclass=NullPool)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     registry = default_registry()
+
+    def uow_factory() -> SqlAlchemyUnitOfWork:
+        return SqlAlchemyUnitOfWork(session_factory)
+
     return WorkerRuntime(
         settings=resolved,
         engine=engine,
         ingest_document=IngestDocument(
-            uow_factory=lambda: SqlAlchemyUnitOfWork(session_factory),
+            uow_factory=uow_factory,
             file_store=LocalFileStore(),
             parser_for=registry.parser_for,
+            dispatcher=CeleryIngestionDispatcher(create_celery_app(resolved)),
+        ),
+        embed_document=EmbedDocument(
+            uow_factory=uow_factory,
+            provider=OllamaEmbeddingProvider(
+                resolved.ollama_url,
+                resolved.embedding_model,
+                batch_size=resolved.embedding_batch_size,
+                concurrency=resolved.embedding_concurrency,
+            ),
         ),
     )
 

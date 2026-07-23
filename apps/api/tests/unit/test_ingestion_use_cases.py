@@ -1,12 +1,15 @@
-"""Ingestion use cases against in-memory fakes: the hash gate, retry
-ladder, dedupe, and lifecycle edges — zero I/O (M04 unit layer)."""
+"""Ingestion use cases against in-memory fakes: the hash gate, staged
+parse→chunk→embed→index pipeline, embedding cache, retry ladder,
+dedupe, and lifecycle edges — zero I/O (M04/M05 unit layer)."""
 
+from collections.abc import Sequence
 from uuid import UUID
 
 import pytest
 
 from atlas.application.ingestion import (
     DetectChanges,
+    EmbedDocument,
     IngestDocument,
     RegisterSource,
     ReindexSource,
@@ -15,9 +18,27 @@ from atlas.domain.knowledge.entities import Source
 from atlas.infrastructure.parsing import default_registry
 from atlas.shared.errors import Conflict, ValidationFailed
 from atlas.shared.ids import uuid7
-from tests.fakes import FakeDispatcher, FakeFileStore, FakeState, FakeUnitOfWork
+from tests.fakes import (
+    FakeDispatcher,
+    FakeEmbeddingProvider,
+    FakeFileStore,
+    FakeState,
+    FakeUnitOfWork,
+)
 
 URI = "/home/u/notes"
+
+
+class ExplodingProvider:
+    """Ollama-down stand-in: every call fails."""
+
+    model = "fake-embed"
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[tuple[float, ...]]:
+        raise RuntimeError("ollama is down")
+
+    async def embed_query(self, text: str) -> tuple[float, ...]:
+        raise RuntimeError("ollama is down")
 
 
 class Rig:
@@ -26,6 +47,7 @@ class Rig:
         self.workspace_id = uuid7()
         self.files = FakeFileStore({URI: {}})
         self.dispatcher = FakeDispatcher()
+        self.provider = FakeEmbeddingProvider()
         registry = default_registry()
 
         def uow_factory() -> FakeUnitOfWork:
@@ -41,7 +63,9 @@ class Rig:
             uow_factory=uow_factory,
             file_store=self.files,
             parser_for=registry.parser_for,
+            dispatcher=self.dispatcher,
         )
+        self.embed = EmbedDocument(uow_factory=uow_factory, provider=self.provider)
         self.reindex = ReindexSource(detect_changes=self.detect)
         self.register = RegisterSource(
             uow_factory=uow_factory, file_store=self.files, detect_changes=self.detect
@@ -56,7 +80,15 @@ class Rig:
         self.files.trees[URI][path] = content
 
     async def ingest_all(self, job_ids: tuple[UUID, ...]) -> list[str]:
-        return [(await self.ingest.execute(self.workspace_id, job)).result for job in job_ids]
+        """Drive each job through the whole pipeline, as the two Celery
+        tasks would; returns final results."""
+        results: list[str] = []
+        for job_id in job_ids:
+            outcome = await self.ingest.execute(self.workspace_id, job_id)
+            if outcome.result == "chunked":
+                outcome = await self.embed.execute(self.workspace_id, job_id)
+            results.append(outcome.result)
+        return results
 
 
 @pytest.fixture
@@ -78,6 +110,8 @@ class TestHashGate:
         document = next(iter(rig.state.documents.values()))
         assert document.title == "Title"
         assert document.current_version_id is not None
+        chunks = list(rig.state.chunks.values())
+        assert chunks and all(c.is_embedded for c in chunks)
 
     async def test_unchanged_rerun_creates_zero_versions(self, rig: Rig) -> None:
         """M04 acceptance: re-run over unchanged corpus → zero new
@@ -189,3 +223,161 @@ class TestRegisterAndReindex:
         assert len(report.enqueued_job_ids) == 1  # b.txt changed
         batch_jobs = [j for j in rig.state.jobs.values() if j.trace_id == "batch-42"]
         assert len(batch_jobs) == 2  # every document re-entered the gate
+
+
+class TestStagedPipeline:
+    """M05: parse+chunk stages then embed+index, with the atomic swap."""
+
+    async def test_parse_stage_stages_chunks_without_flipping(self, rig: Rig) -> None:
+        source = rig.with_source()
+        rig.write("a.md", b"# Title\n\nBody paragraph for staging.")
+        report = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        job_id = report.enqueued_job_ids[0]
+
+        outcome = await rig.ingest.execute(rig.workspace_id, job_id)
+        assert outcome.result == "chunked"
+        job = rig.state.jobs[job_id]
+        assert (job.state, job.stage) == ("running", "embed")
+        assert rig.dispatcher.embed_dispatched == [(rig.workspace_id, job_id, "b1")]
+
+        staged = list(rig.state.chunks.values())
+        assert staged and all(not chunk.is_embedded for chunk in staged)
+        document = next(iter(rig.state.documents.values()))
+        assert document.current_version_id is None  # flip belongs to index
+        assert rig.provider.calls == []
+
+    async def test_embed_stage_completes_and_swaps(self, rig: Rig) -> None:
+        source = rig.with_source()
+        rig.write("a.md", b"# Title\n\nBody paragraph for embedding.")
+        report = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        job_id = report.enqueued_job_ids[0]
+        await rig.ingest.execute(rig.workspace_id, job_id)
+
+        outcome = await rig.embed.execute(rig.workspace_id, job_id)
+        assert outcome.result == "succeeded"
+        job = rig.state.jobs[job_id]
+        assert (job.state, job.stage) == ("succeeded", "index")
+        chunks = list(rig.state.chunks.values())
+        assert chunks and all(chunk.embedding_model == "fake-embed" for chunk in chunks)
+        document = next(iter(rig.state.documents.values()))
+        assert document.current_version_id is not None  # pointer flipped
+        assert document.current_version_id in rig.state.versions
+        assert rig.state.sources[source.id].last_indexed_at is not None
+
+    async def test_breadcrumb_prefixed_text_is_what_gets_embedded(self, rig: Rig) -> None:
+        source = rig.with_source()
+        rig.write("a.md", b"# Atlas Guide\n\nGrounded answers or silence.")
+        report = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        await rig.ingest_all(report.enqueued_job_ids)
+        embedded_texts = [text for batch in rig.provider.calls for text in batch]
+        assert any(text.startswith("Atlas Guide") for text in embedded_texts)
+
+    async def test_identical_content_elsewhere_hits_the_cache(self, rig: Rig) -> None:
+        """docs/21 §6: vectors are reused by (model, content_hash) — a
+        byte-identical document embeds zero new texts."""
+        source = rig.with_source()
+        rig.write("a.md", b"# Same\n\nShared body.")
+        first = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        await rig.ingest_all(first.enqueued_job_ids)
+        embedded_after_first = rig.provider.total_texts_embedded
+        assert embedded_after_first > 0
+
+        rig.write("copy.md", b"# Same\n\nShared body.")
+        second = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b2")
+        results = await rig.ingest_all(second.enqueued_job_ids)
+        assert results == ["succeeded"]
+        assert rig.provider.total_texts_embedded == embedded_after_first
+
+    async def test_unchanged_reindex_makes_zero_provider_calls(self, rig: Rig) -> None:
+        """M05 acceptance: full reindex of unchanged content performs
+        zero embedding provider calls."""
+        source = rig.with_source()
+        rig.write("a.md", b"# Doc\n\nStable content.")
+        first = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        await rig.ingest_all(first.enqueued_job_ids)
+        calls_before = rig.provider.total_texts_embedded
+
+        rerun = await rig.reindex.execute(rig.workspace_id, source.id, batch_id="b2")
+        assert rerun.enqueued_job_ids == ()
+        assert rerun.skipped_unchanged == 1
+        assert rig.provider.total_texts_embedded == calls_before
+
+    async def test_current_version_without_index_is_backfilled(self, rig: Rig) -> None:
+        """A hash-matching current version with no embedded chunks (an
+        M04-era row) re-enters the pipeline instead of skipping."""
+        source = rig.with_source()
+        rig.write("a.md", b"# Doc\n\nBackfill me.")
+        first = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        await rig.ingest_all(first.enqueued_job_ids)
+        rig.state.chunks.clear()  # simulate the pre-M05 database shape
+
+        second = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b2")
+        assert len(second.enqueued_job_ids) == 1
+        results = await rig.ingest_all(second.enqueued_job_ids)
+        assert results == ["succeeded"]
+        chunks = list(rig.state.chunks.values())
+        assert chunks and all(chunk.is_embedded for chunk in chunks)
+        assert len(rig.state.versions) == 1  # resumed, never re-created
+
+    async def test_edit_after_index_replaces_old_generation_chunks(self, rig: Rig) -> None:
+        source = rig.with_source()
+        rig.write("a.md", b"# V1\n\nOriginal body.")
+        first = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        await rig.ingest_all(first.enqueued_job_ids)
+
+        rig.write("a.md", b"# V2\n\nRewritten body.")
+        second = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b2")
+        await rig.ingest_all(second.enqueued_job_ids)
+
+        document = next(iter(rig.state.documents.values()))
+        remaining_versions = {c.document_version_id for c in rig.state.chunks.values()}
+        assert remaining_versions == {document.current_version_id}  # old chunks gone
+        assert len(rig.state.versions) == 2  # version history stays for citations
+
+    async def test_embed_failure_climbs_ladder_to_dead_letter(self, rig: Rig) -> None:
+        """An Ollama outage retries the embed stage on the 30/120/600
+        ladder without ever re-parsing, then dead-letters."""
+        rig.embed = EmbedDocument(
+            uow_factory=lambda: FakeUnitOfWork(rig.state), provider=ExplodingProvider()
+        )
+        source = rig.with_source()
+        rig.write("a.md", b"# Doc\n\nWill not embed.")
+        report = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        job_id = report.enqueued_job_ids[0]
+        assert (await rig.ingest.execute(rig.workspace_id, job_id)).result == "chunked"
+
+        first = await rig.embed.execute(rig.workspace_id, job_id)
+        assert (first.result, first.retry_delay_seconds) == ("retry_scheduled", 30)
+        second = await rig.embed.execute(rig.workspace_id, job_id)
+        assert (second.result, second.retry_delay_seconds) == ("retry_scheduled", 120)
+        third = await rig.embed.execute(rig.workspace_id, job_id)
+        assert third.result == "dead_lettered"
+
+        job = rig.state.jobs[job_id]
+        assert (job.state, job.is_dead_lettered) == ("failed", True)
+        document = next(iter(rig.state.documents.values()))
+        assert document.current_version_id is None  # the old index never lied
+
+    async def test_duplicate_parse_delivery_only_repokes_embed(self, rig: Rig) -> None:
+        source = rig.with_source()
+        rig.write("a.md", b"# Doc\n\nDelivered twice.")
+        report = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        job_id = report.enqueued_job_ids[0]
+        await rig.ingest.execute(rig.workspace_id, job_id)
+        versions_after_first = dict(rig.state.versions)
+
+        duplicate = await rig.ingest.execute(rig.workspace_id, job_id)
+        assert duplicate.result == "chunked"
+        assert rig.state.versions == versions_after_first
+        assert len(rig.dispatcher.embed_dispatched) == 2  # re-poked, not re-parsed
+
+        assert (await rig.embed.execute(rig.workspace_id, job_id)).result == "succeeded"
+
+    async def test_embed_on_terminal_job_is_a_noop(self, rig: Rig) -> None:
+        source = rig.with_source()
+        rig.write("a.md", b"# Doc\n\nDone already.")
+        report = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        job_id = report.enqueued_job_ids[0]
+        await rig.ingest_all(report.enqueued_job_ids)
+        outcome = await rig.embed.execute(rig.workspace_id, job_id)
+        assert (outcome.result, outcome.detail) == ("skipped", "already terminal")

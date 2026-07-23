@@ -1,9 +1,18 @@
-"""Ingestion use cases (docs/21 pipeline, M04 slice: parse → version).
+"""Ingestion use cases (docs/21 pipeline; M05: parse → chunk → embed → index).
 
 Transaction discipline: each use case runs one Unit of Work and
 dispatches to the queue only AFTER commit, so workers never race an
 uncommitted row. The SHA-256 hash gate makes every step idempotent:
 unchanged content becomes a `skipped` job, never a new version.
+
+Stage layout (docs/21 §3, realized as two tasks): `IngestDocument`
+covers parse+chunk — both recompute deterministically from file bytes —
+and commits the version plus its staged (unembedded) chunk rows, the
+persisted intermediate every later stage resumes from. `EmbedDocument`
+covers embed+index: cache-first vectors, then the atomic swap (flip the
+current pointer, delete other generations' chunks, one transaction). A
+crash anywhere leaves the old index serving; a duplicate delivery finds
+committed state and no-ops forward.
 """
 
 import hashlib
@@ -13,16 +22,18 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-from atlas.application.ports import IngestionDispatcher, UnitOfWork
+from atlas.application.ports import EmbeddingProvider, IngestionDispatcher, UnitOfWork
 from atlas.domain.knowledge.entities import (
+    Chunk,
     Document,
     DocumentVersion,
     IngestionJob,
     Source,
 )
 from atlas.domain.knowledge.files import SourceFileStore
-from atlas.domain.knowledge.parsing import DocumentParser, ParseFailed
+from atlas.domain.knowledge.parsing import Block, DocumentParser, ParsedDocument, ParseFailed
 from atlas.domain.knowledge.values import ContentHash, SourceKind
+from atlas.rag import chunk_blocks, embedded_text
 from atlas.shared.errors import Conflict, NotFound, ValidationFailed
 
 # Default ignore globs (docs/21 §watching; M04 risk: event storms).
@@ -42,7 +53,7 @@ DEFAULT_IGNORE_GLOBS: tuple[str, ...] = (
 # Exponential backoff per attempt (docs/21: 30 s / 2 m / 10 m).
 RETRY_DELAYS_SECONDS: tuple[int, ...] = (30, 120, 600)
 
-IngestResult = Literal["succeeded", "skipped", "retry_scheduled", "dead_lettered"]
+IngestResult = Literal["succeeded", "chunked", "skipped", "retry_scheduled", "dead_lettered"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,14 +121,13 @@ class DetectChanges:
                     document = Document(source_id=source.id, path=path)
                     await uow.documents.add(document)
 
-                current_hash = await self._current_hash(uow, workspace_id, document)
                 job = IngestionJob(
                     source_id=source.id,
                     document_id=document.id,
                     content_hash=stat.content_hash,
                     trace_id=batch_id,
                 )
-                if current_hash == stat.content_hash:
+                if await self._fully_indexed(uow, workspace_id, document, stat.content_hash):
                     job.skip("unchanged content")
                     await uow.ingestion_jobs.add(job)
                     skipped += 1
@@ -136,22 +146,72 @@ class DetectChanges:
             deduplicated=deduplicated,
         )
 
-    async def _current_hash(
-        self, uow: UnitOfWork, workspace_id: UUID, document: Document
-    ) -> str | None:
+    async def _fully_indexed(
+        self, uow: UnitOfWork, workspace_id: UUID, document: Document, content_hash: str
+    ) -> bool:
+        """Unchanged bytes skip only when the current version actually
+        carries embedded chunks — a hash match against an M04-era (or
+        crash-orphaned) version without an index re-enters the pipeline
+        instead of hiding behind the gate (M05 backfill)."""
         if document.current_version_id is None:
-            return None
+            return False
         version = await uow.document_versions.get(workspace_id, document.current_version_id)
-        return str(version.content_hash) if version is not None else None
+        if version is None or str(version.content_hash) != content_hash:
+            return False
+        embedded = await uow.chunks.count_embedded_for_version(workspace_id, version.id)
+        return embedded > 0
+
+
+def _record_failure(job: IngestionJob, error: Exception) -> IngestOutcome:
+    """Shared failure ladder (M04): fail → retry with backoff → dead-letter."""
+    reason = (
+        f"{error.context.get('reason')}: {error.detail}"
+        if isinstance(error, ParseFailed)
+        else f"{type(error).__name__}: {error}"
+    )
+    job.fail(reason[:2000])
+    if job.can_retry:
+        delay = RETRY_DELAYS_SECONDS[min(job.attempts - 1, len(RETRY_DELAYS_SECONDS) - 1)]
+        job.retry()
+        return IngestOutcome("retry_scheduled", retry_delay_seconds=delay, detail=reason)
+    return IngestOutcome("dead_lettered", detail=reason)
+
+
+def _stage_chunks(version_id: UUID, parsed: ParsedDocument) -> list[Chunk]:
+    """Chunk the parse IR into staged (unembedded) rows for the version."""
+    blocks = parsed.blocks or (Block(kind="paragraph", text=parsed.text),)
+    chunks: list[Chunk] = []
+    for ordinal, draft in enumerate(chunk_blocks(blocks, title=parsed.title)):
+        meta: dict[str, object] = {"breadcrumb": draft.breadcrumb}
+        if draft.page_start is not None:
+            meta["page_start"] = draft.page_start
+            meta["page_end"] = draft.page_end
+        chunks.append(
+            Chunk(
+                document_version_id=version_id,
+                ordinal=ordinal,
+                text=draft.text,
+                token_count=draft.token_count,
+                content_hash=ContentHash(draft.content_hash),
+                heading_path=draft.heading_path,
+                meta=meta,
+            )
+        )
+    return chunks
 
 
 @dataclass(frozen=True)
 class IngestDocument:
-    """One ingestion attempt: read → hash → parse → immutable version."""
+    """Parse+chunk stages: read → hash → parse → version + staged chunks.
+
+    Commits before handing the job to the embed queue, so the staged
+    rows ARE the persisted intermediate — an Ollama outage retries embed
+    without ever re-parsing a 200-page PDF (docs/21 §3)."""
 
     uow_factory: Callable[[], UnitOfWork]
     file_store: SourceFileStore
     parser_for: Callable[[str], DocumentParser]
+    dispatcher: IngestionDispatcher
 
     async def execute(self, workspace_id: UUID, job_id: UUID) -> IngestOutcome:
         async with self.uow_factory() as uow:
@@ -161,16 +221,24 @@ class IngestDocument:
             if job.state in ("succeeded", "skipped"):
                 return IngestOutcome("skipped", detail="already terminal")
             if job.document_id is None:
-                raise ValidationFailed("document-less jobs are not supported at M04")
+                raise ValidationFailed("document-less jobs are not supported at M05")
 
-            job.start(trace_id=job.trace_id)
-            try:
-                outcome = await self._attempt(uow, workspace_id, job)
-            except Exception as error:  # parse/data/infra faults become job state
-                outcome = self._record_failure(job, error)
-            await uow.ingestion_jobs.save(job)
+            if job.state == "running" and job.stage in ("embed", "index"):
+                # Duplicate parse delivery while embed owns the job:
+                # nothing to redo here, just make sure embed gets poked.
+                outcome = IngestOutcome("chunked", detail="stage already advanced")
+            else:
+                job.start(trace_id=job.trace_id)
+                try:
+                    outcome = await self._attempt(uow, workspace_id, job)
+                except Exception as error:  # parse/data/infra faults become job state
+                    outcome = _record_failure(job, error)
+                await uow.ingestion_jobs.save(job)
             await uow.commit()
-            return outcome
+
+        if outcome.result == "chunked":  # only after commit
+            self.dispatcher.dispatch_embed(workspace_id, job_id, job.trace_id)
+        return outcome
 
     async def _attempt(
         self, uow: UnitOfWork, workspace_id: UUID, job: IngestionJob
@@ -193,10 +261,11 @@ class IngestDocument:
             return IngestOutcome("skipped", detail="file missing")
 
         content_hash = ContentHash(_sha256(raw))
-        existing = await uow.document_versions.list_for_document(workspace_id, document.id)
-        if any(str(version.content_hash) == str(content_hash) for version in existing):
-            job.skip("unchanged content")
-            return IngestOutcome("skipped", detail="version already ingested")
+        existing = await uow.document_versions.get_by_hash(
+            workspace_id, document.id, str(content_hash)
+        )
+        if existing is not None:
+            return await self._resume_existing(uow, workspace_id, job, document, existing, raw)
 
         parser = self.parser_for(document.path)
         parsed = parser.parse(raw, document.path)
@@ -209,30 +278,133 @@ class IngestDocument:
             meta=dict(parsed.meta),
         )
         await uow.document_versions.add(version)
+        await uow.chunks.add_all(_stage_chunks(version.id, parsed))
 
         document.title = parsed.title or document.title
         document.mime_type = document.mime_type or mimetypes.guess_type(document.path)[0]
-        document.set_current_version(version.id)
         await uow.documents.save(document)
 
+        job.advance_stage("chunk")
+        job.advance_stage("embed")
+        return IngestOutcome("chunked")
+
+    async def _resume_existing(
+        self,
+        uow: UnitOfWork,
+        workspace_id: UUID,
+        job: IngestionJob,
+        document: Document,
+        version: DocumentVersion,
+        raw: bytes,
+    ) -> IngestOutcome:
+        """The version for these bytes already exists. Fully indexed and
+        current → genuine skip. Anything else is an interrupted or
+        pre-M05 pipeline: restage if needed and hand off to embed."""
+        embedded = await uow.chunks.count_embedded_for_version(workspace_id, version.id)
+        if document.current_version_id == version.id and embedded > 0:
+            job.skip("unchanged content")
+            return IngestOutcome("skipped", detail="version already indexed")
+
+        staged = await uow.chunks.count_for_version(workspace_id, version.id)
+        if staged == 0:
+            parser = self.parser_for(document.path)
+            parsed = parser.parse(raw, document.path)
+            await uow.chunks.add_all(_stage_chunks(version.id, parsed))
+        job.advance_stage("embed")
+        return IngestOutcome("chunked", detail="resumed staged version")
+
+
+@dataclass(frozen=True)
+class EmbedDocument:
+    """Embed+index stages: cache-first vectors, then the atomic swap.
+
+    Two commits, deliberately (docs/21 §3): vectors commit before the
+    flip so a crash between them re-runs as pure cache hits; the flip
+    transaction moves the current pointer AND deletes other generations'
+    chunks together — there is never a window where a document serves no
+    chunks or mixed generations."""
+
+    uow_factory: Callable[[], UnitOfWork]
+    provider: EmbeddingProvider
+
+    async def execute(self, workspace_id: UUID, job_id: UUID) -> IngestOutcome:
+        async with self.uow_factory() as uow:
+            job = await uow.ingestion_jobs.get(workspace_id, job_id)
+            if job is None:
+                raise NotFound(f"ingestion job {job_id} not found")
+            if job.state in ("succeeded", "skipped"):
+                return IngestOutcome("skipped", detail="already terminal")
+            if job.state == "pending":  # embed-stage retry re-entry
+                job.start(trace_id=job.trace_id)
+            try:
+                outcome = await self._attempt(uow, workspace_id, job)
+            except Exception as error:  # provider/data/infra faults become job state
+                outcome = _record_failure(job, error)
+            await uow.ingestion_jobs.save(job)
+            await uow.commit()
+            return outcome
+
+    async def _attempt(
+        self, uow: UnitOfWork, workspace_id: UUID, job: IngestionJob
+    ) -> IngestOutcome:
+        if job.document_id is None or job.content_hash is None:
+            raise ValidationFailed("embed stage requires a document and content hash")
+        document = await uow.documents.get(workspace_id, job.document_id)
+        if document is None:
+            job.skip("document no longer present")
+            return IngestOutcome("skipped", detail="document missing")
+        source = await uow.sources.get(workspace_id, document.source_id)
+        if source is None:
+            job.skip("source no longer present")
+            return IngestOutcome("skipped", detail="source missing")
+        version = await uow.document_versions.get_by_hash(
+            workspace_id, document.id, job.content_hash
+        )
+        if version is None:
+            raise ValidationFailed("no staged version for this job's content hash")
+        chunks = await uow.chunks.list_for_version(workspace_id, version.id)
+        if not chunks:
+            raise ValidationFailed(f"version {version.id} has no staged chunks")
+
+        pending = [chunk for chunk in chunks if not chunk.is_embedded]
+        if pending:
+            if job.stage != "index":
+                job.advance_stage("embed")
+            completed = await self._embed(uow, workspace_id, pending)
+            await uow.chunks.save_embeddings(completed)
+            job.advance_stage("index")
+            await uow.ingestion_jobs.save(job)
+            await uow.commit()  # embed commit: a flip crash resumes as cache hits
+
+        document.set_current_version(version.id)
+        await uow.documents.save(document)
+        await uow.chunks.delete_for_document_except(document.id, version.id)
         source.mark_indexed()
         await uow.sources.save(source)
-
+        job.advance_stage("index")
         job.succeed()
         return IngestOutcome("succeeded")
 
-    def _record_failure(self, job: IngestionJob, error: Exception) -> IngestOutcome:
-        reason = (
-            f"{error.context.get('reason')}: {error.detail}"
-            if isinstance(error, ParseFailed)
-            else f"{type(error).__name__}: {error}"
-        )
-        job.fail(reason[:2000])
-        if job.can_retry:
-            delay = RETRY_DELAYS_SECONDS[min(job.attempts - 1, len(RETRY_DELAYS_SECONDS) - 1)]
-            job.retry()
-            return IngestOutcome("retry_scheduled", retry_delay_seconds=delay, detail=reason)
-        return IngestOutcome("dead_lettered", detail=reason)
+    async def _embed(
+        self, uow: UnitOfWork, workspace_id: UUID, pending: Sequence[Chunk]
+    ) -> list[Chunk]:
+        """Cache first (docs/21 §6: Postgres IS the cache), model for the
+        misses only — re-embedding cost is proportional to the edit."""
+        hashes = [str(chunk.content_hash) for chunk in pending]
+        cached = await uow.chunks.find_embeddings(workspace_id, self.provider.model, hashes)
+        misses = [chunk for chunk in pending if str(chunk.content_hash) not in cached]
+        texts = [
+            embedded_text(str(chunk.meta.get("breadcrumb", "")), chunk.text) for chunk in misses
+        ]
+        vectors = await self.provider.embed_documents(texts)
+        fresh = {
+            str(chunk.content_hash): vector for chunk, vector in zip(misses, vectors, strict=True)
+        }
+        merged = {**cached, **fresh}
+        return [
+            chunk.with_embedding(merged[str(chunk.content_hash)], self.provider.model)
+            for chunk in pending
+        ]
 
 
 @dataclass(frozen=True)

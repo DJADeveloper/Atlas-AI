@@ -1,22 +1,28 @@
-"""M04 end-to-end over real Postgres and real files: round trip,
-hash-gate rerun, and the retry → dead-letter ladder with an injected
-failing parser."""
+"""M04/M05 end-to-end over real Postgres and real files: round trip
+with staged chunks and embeddings, hash-gate rerun, and the retry →
+dead-letter ladder with an injected failing parser."""
 
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
+from uuid import UUID
 
 import pymupdf
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from atlas.application.ingestion import DetectChanges, IngestDocument, ReindexSource
+from atlas.application.ingestion import (
+    DetectChanges,
+    EmbedDocument,
+    IngestDocument,
+    ReindexSource,
+)
 from atlas.domain.knowledge.entities import Source
 from atlas.domain.knowledge.parsing import ParsedDocument
 from atlas.infrastructure.parsing import default_registry
 from atlas.infrastructure.persistence.bootstrap import ensure_default_workspace
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 from atlas.infrastructure.watcher.filesystem import LocalFileStore
-from tests.fakes import FakeDispatcher
+from tests.fakes import FakeDispatcher, FakeEmbeddingProvider
 
 pytestmark = pytest.mark.integration
 
@@ -49,6 +55,7 @@ class Flow:
         self.factory = async_sessionmaker(self.engine, expire_on_commit=False)
         self.root = root
         self.dispatcher = FakeDispatcher()
+        self.provider = FakeEmbeddingProvider(dimensions=768)
         registry = default_registry()
         self.uow: Callable[[], SqlAlchemyUnitOfWork] = lambda: SqlAlchemyUnitOfWork(self.factory)
         self.detect = DetectChanges(
@@ -61,7 +68,15 @@ class Flow:
             uow_factory=self.uow,
             file_store=LocalFileStore(),
             parser_for=registry.parser_for,
+            dispatcher=self.dispatcher,
         )
+        self.embed = EmbedDocument(uow_factory=self.uow, provider=self.provider)
+
+    async def run_pipeline(self, workspace_id: UUID, job_id: UUID) -> str:
+        outcome = await self.ingest.execute(workspace_id, job_id)
+        if outcome.result == "chunked":
+            outcome = await self.embed.execute(workspace_id, job_id)
+        return outcome.result
 
 
 @pytest.fixture
@@ -83,8 +98,7 @@ async def test_round_trip_then_rerun_creates_zero_new_versions(flow: Flow) -> No
     assert len(report.enqueued_job_ids) == 3  # md + txt + pdf
 
     for job_id in report.enqueued_job_ids:
-        outcome = await flow.ingest.execute(workspace_id, job_id)
-        assert outcome.result == "succeeded"
+        assert await flow.run_pipeline(workspace_id, job_id) == "succeeded"
 
     async with flow.uow() as uow:
         documents = await uow.documents.list_for_source(workspace_id, source.id)
@@ -94,16 +108,32 @@ async def test_round_trip_then_rerun_creates_zero_new_versions(flow: Flow) -> No
             for v in await uow.document_versions.list_for_document(workspace_id, d.id)
         ]
         succeeded = await uow.ingestion_jobs.list_by_state(workspace_id, "succeeded")
+        chunks = [
+            c
+            for d in documents
+            if d.current_version_id is not None
+            for c in await uow.chunks.list_for_version(workspace_id, d.current_version_id)
+        ]
     assert sorted(d.path for d in documents) == ["notes/plan.md", "paper.pdf", "readme.txt"]
     assert len(versions) == 3
     assert all(d.current_version_id is not None for d in documents)
     assert len(succeeded) == 3
+    assert all(job.stage == "index" for job in succeeded)
 
-    # M04 acceptance: unchanged corpus re-run — zero new versions, all skipped.
+    # M05 acceptance: every chunk of a successfully ingested document
+    # carries a 768-dimensional, non-null embedding.
+    assert chunks
+    assert all(c.embedding is not None and len(c.embedding) == 768 for c in chunks)
+    assert all(c.embedding_model == "fake-embed" for c in chunks)
+
+    # M04 acceptance: unchanged corpus re-run — zero new versions, all
+    # skipped; M05: and ZERO embedding provider calls (cache criterion).
+    calls_before_rerun = flow.provider.total_texts_embedded
     reindex = ReindexSource(detect_changes=flow.detect)
     rerun = await reindex.execute(workspace_id, source.id, batch_id="run-2")
     assert rerun.enqueued_job_ids == ()
     assert rerun.skipped_unchanged == 3
+    assert flow.provider.total_texts_embedded == calls_before_rerun
     async with flow.uow() as uow:
         documents = await uow.documents.list_for_source(workspace_id, source.id)
         versions_after = [
@@ -131,6 +161,7 @@ async def test_injected_parser_failure_dead_letters_after_three_attempts(flow: F
         uow_factory=flow.uow,
         file_store=LocalFileStore(),
         parser_for=lambda _path: ExplodingParser(),
+        dispatcher=FakeDispatcher(),
     )
     results = [(await failing.execute(workspace_id, target)) for _ in range(3)]
     assert [r.result for r in results] == [

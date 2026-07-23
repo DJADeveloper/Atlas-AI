@@ -56,7 +56,7 @@ class ChunkDraft:
 
     @property
     def embedded_text(self) -> str:
-        return f"{self.breadcrumb}\n\n{self.text}" if self.breadcrumb else self.text
+        return embedded_text(self.breadcrumb, self.text)
 
     @property
     def content_hash(self) -> str:
@@ -66,6 +66,13 @@ class ChunkDraft:
 def build_breadcrumb(title: str | None, heading_path: Sequence[str]) -> str:
     parts = ([title] if title else []) + list(heading_path)
     return " > ".join(parts)
+
+
+def embedded_text(breadcrumb: str, text: str) -> str:
+    """The exact string a chunk's vector — and cache key — derive from.
+    The embed stage reconstructs it from the stored row alone, so the
+    format is a contract: breadcrumb, blank line, display text."""
+    return f"{breadcrumb}\n\n{text}" if breadcrumb else text
 
 
 def _sentences(text: str) -> list[str]:

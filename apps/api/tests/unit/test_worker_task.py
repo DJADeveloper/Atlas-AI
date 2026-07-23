@@ -10,7 +10,7 @@ import json
 
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from atlas.application.ingestion import DetectChanges, IngestDocument
+from atlas.application.ingestion import DetectChanges, EmbedDocument, IngestDocument
 from atlas.config.settings import Settings
 from atlas.domain.knowledge.entities import Source
 from atlas.infrastructure.jobs.runtime import WorkerRuntime, set_runtime
@@ -18,7 +18,13 @@ from atlas.infrastructure.jobs.worker import execute_ingestion_attempt
 from atlas.infrastructure.parsing import default_registry
 from atlas.observability.logging import configure_logging
 from atlas.shared.ids import uuid7
-from tests.fakes import FakeDispatcher, FakeFileStore, FakeState, FakeUnitOfWork
+from tests.fakes import (
+    FakeDispatcher,
+    FakeEmbeddingProvider,
+    FakeFileStore,
+    FakeState,
+    FakeUnitOfWork,
+)
 
 URI = "/notes"
 
@@ -29,14 +35,19 @@ _CLOSED_PORT_SETTINGS = Settings(
 
 
 def _fake_runtime(state: FakeState, files: FakeFileStore) -> WorkerRuntime:
+    def uow_factory() -> FakeUnitOfWork:
+        return FakeUnitOfWork(state)
+
     return WorkerRuntime(
         settings=_CLOSED_PORT_SETTINGS,
         engine=create_async_engine(_CLOSED_PORT_SETTINGS.database_url),  # lazy, no I/O
         ingest_document=IngestDocument(
-            uow_factory=lambda: FakeUnitOfWork(state),
+            uow_factory=uow_factory,
             file_store=files,
             parser_for=default_registry().parser_for,
+            dispatcher=FakeDispatcher(),
         ),
+        embed_document=EmbedDocument(uow_factory=uow_factory, provider=FakeEmbeddingProvider()),
     )
 
 
@@ -68,12 +79,12 @@ def test_attempt_logs_carry_the_batch_trace_id() -> None:
     finally:
         set_runtime(None)
 
-    assert outcome.result == "succeeded"
+    assert outcome.result == "chunked"  # parse task hands off to the embed queue
     events = [json.loads(line) for line in buffer.getvalue().splitlines() if line]
     finished = [e for e in events if e["event"] == "ingestion.attempt_finished"]
     assert len(finished) == 1
     assert finished[0]["trace_id"] == "trace-batch-7"
-    assert finished[0]["result"] == "succeeded"
+    assert finished[0]["result"] == "chunked"
 
 
 def test_attempt_maps_retry_outcome_with_delay() -> None:

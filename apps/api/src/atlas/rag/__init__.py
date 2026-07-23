@@ -9,6 +9,7 @@ from atlas.rag.chunking import (
     ChunkDraft,
     build_breadcrumb,
     chunk_blocks,
+    embedded_text,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "ChunkDraft",
     "build_breadcrumb",
     "chunk_blocks",
+    "embedded_text",
 ]

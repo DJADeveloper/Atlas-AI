@@ -1,8 +1,9 @@
-"""Ingestion use cases (M04): DetectChanges, IngestDocument, ReindexSource."""
+"""Ingestion use cases (M04/M05): detect, parse+chunk, embed+index."""
 
 from atlas.application.ingestion.use_cases import (
     DetectChanges,
     DetectReport,
+    EmbedDocument,
     IngestDocument,
     IngestOutcome,
     RegisterSource,
@@ -12,6 +13,7 @@ from atlas.application.ingestion.use_cases import (
 __all__ = [
     "DetectChanges",
     "DetectReport",
+    "EmbedDocument",
     "IngestDocument",
     "IngestOutcome",
     "RegisterSource",
