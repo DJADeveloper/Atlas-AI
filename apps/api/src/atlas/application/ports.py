@@ -26,6 +26,7 @@ from uuid import UUID
 from atlas.domain.conversation.ports import (
     CitationRepository,
     ConversationRepository,
+    FeedbackRepository,
     MessageRepository,
 )
 from atlas.domain.knowledge.ports import (
@@ -163,6 +164,8 @@ class UnitOfWork(Protocol):
     def messages(self) -> MessageRepository: ...
     @property
     def citations(self) -> CitationRepository: ...
+    @property
+    def feedback(self) -> FeedbackRepository: ...
     @property
     def memories(self) -> MemoryRepository: ...
 

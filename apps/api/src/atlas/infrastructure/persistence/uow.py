@@ -16,6 +16,7 @@ from atlas.infrastructure.persistence.repositories import (
     SqlConversationRepository,
     SqlDocumentRepository,
     SqlDocumentVersionRepository,
+    SqlFeedbackRepository,
     SqlIngestionJobRepository,
     SqlMemoryRepository,
     SqlMessageRepository,
@@ -32,6 +33,7 @@ class SqlAlchemyUnitOfWork:
     conversations: SqlConversationRepository
     messages: SqlMessageRepository
     citations: SqlCitationRepository
+    feedback: SqlFeedbackRepository
     memories: SqlMemoryRepository
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -48,6 +50,7 @@ class SqlAlchemyUnitOfWork:
         self.conversations = SqlConversationRepository(self._session)
         self.messages = SqlMessageRepository(self._session)
         self.citations = SqlCitationRepository(self._session)
+        self.feedback = SqlFeedbackRepository(self._session)
         self.memories = SqlMemoryRepository(self._session)
         return self
 

@@ -4,12 +4,15 @@ from atlas.domain.conversation.entities import (
     MESSAGE_ROLES,
     Citation,
     Conversation,
+    Feedback,
+    FeedbackRating,
     Message,
     MessageRole,
 )
 from atlas.domain.conversation.ports import (
     CitationRepository,
     ConversationRepository,
+    FeedbackRepository,
     MessageRepository,
     ResolvedCitation,
 )
@@ -20,6 +23,9 @@ __all__ = [
     "CitationRepository",
     "Conversation",
     "ConversationRepository",
+    "Feedback",
+    "FeedbackRating",
+    "FeedbackRepository",
     "Message",
     "MessageRepository",
     "MessageRole",

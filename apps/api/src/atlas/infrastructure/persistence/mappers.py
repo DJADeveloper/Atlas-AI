@@ -14,9 +14,12 @@ from decimal import Decimal
 from typing import Any
 
 from atlas.domain.conversation.entities import (
+    FEEDBACK_RATINGS,
     MESSAGE_ROLES,
     Citation,
     Conversation,
+    Feedback,
+    FeedbackRating,
     Message,
     MessageRole,
 )
@@ -45,6 +48,7 @@ from atlas.infrastructure.persistence.tables import (
     ConversationRow,
     DocumentRow,
     DocumentVersionRow,
+    FeedbackRow,
     IngestionJobRow,
     MemoryRow,
     MessageRow,
@@ -397,5 +401,35 @@ def citation_from_row(row: CitationRow) -> Citation:
         chunk_id=row.chunk_id,
         marker=row.marker,
         score=row.score,
+        created_at=row.created_at,
+    )
+
+
+def feedback_to_row(entity: Feedback) -> FeedbackRow:
+    return FeedbackRow(
+        id=entity.id,
+        message_id=entity.message_id,
+        user_id=entity.user_id,
+        rating=entity.rating,
+        categories=list(entity.categories),
+        comment=entity.comment,
+        created_at=entity.created_at,
+    )
+
+
+def _as_rating(value: str) -> FeedbackRating:
+    if value not in FEEDBACK_RATINGS:
+        raise ValidationFailed(f"unknown feedback rating in database: {value!r}")
+    return value
+
+
+def feedback_from_row(row: FeedbackRow) -> Feedback:
+    return Feedback(
+        id=row.id,
+        message_id=row.message_id,
+        user_id=row.user_id,
+        rating=_as_rating(row.rating),
+        categories=tuple(row.categories),
+        comment=row.comment,
         created_at=row.created_at,
     )

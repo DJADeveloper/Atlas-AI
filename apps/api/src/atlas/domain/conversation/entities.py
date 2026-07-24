@@ -126,3 +126,25 @@ class Citation:
     def __post_init__(self) -> None:
         if self.marker < 1:
             raise ValidationFailed("citation markers are 1-based")
+
+
+FeedbackRating = Literal["up", "down"]
+FEEDBACK_RATINGS: tuple[FeedbackRating, ...] = ("up", "down")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Feedback:
+    """One thumbs verdict on an answer (docs/12 §4.3). Immutable; it
+    feeds the eval datasets (M11), so categories stay structured."""
+
+    id: UUID = field(default_factory=uuid7)
+    message_id: UUID
+    user_id: UUID
+    rating: FeedbackRating
+    categories: tuple[str, ...] = ()
+    comment: str | None = None
+    created_at: datetime = field(default_factory=utc_now)
+
+    def __post_init__(self) -> None:
+        if self.comment is not None and not self.comment.strip():
+            raise ValidationFailed("feedback comment must not be blank when present")

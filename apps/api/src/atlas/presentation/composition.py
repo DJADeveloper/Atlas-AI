@@ -26,6 +26,7 @@ from atlas.application.chat import (
     CreateConversation,
     GetConversation,
     ListConversations,
+    RecordFeedback,
     SendMessage,
     StreamAnswer,
 )
@@ -47,6 +48,7 @@ from atlas.infrastructure.persistence.prompts import SqlPromptRegistry
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 from atlas.infrastructure.providers.anthropic import AnthropicChatProvider
 from atlas.infrastructure.providers.ollama import OllamaChatProvider, OllamaEmbeddingProvider
+from atlas.infrastructure.providers.testing import EchoChatProvider, HashEmbeddingProvider
 from atlas.infrastructure.search import SqlCandidateSearcher
 from atlas.infrastructure.streams import RedisStreamBuffer
 from atlas.infrastructure.watcher.filesystem import LocalFileStore
@@ -65,7 +67,7 @@ class Container:
     chat_dispatcher: CeleryChatDispatcher
     file_store: LocalFileStore
     parser_registry: ParserRegistry
-    embedding_provider: OllamaEmbeddingProvider
+    embedding_provider: OllamaEmbeddingProvider | HashEmbeddingProvider
     searcher: SqlCandidateSearcher
     chat_runtime: ChatRuntime
     stream_buffer: RedisStreamBuffer
@@ -107,6 +109,9 @@ class Container:
             retriever=self.hybrid_search(),
         )
 
+    def record_feedback(self) -> RecordFeedback:
+        return RecordFeedback(self.unit_of_work)
+
     # Memory v1 (M07).
     def remember_fact(self) -> RememberFact:
         return RememberFact(self.unit_of_work)
@@ -137,6 +142,9 @@ def build_container(settings: Settings) -> Container:
     anthropic_chat = AnthropicChatProvider(settings.anthropic_api_key)
     ollama_chat = OllamaChatProvider(settings.ollama_url)
     providers: dict[str, LLMProvider] = {"anthropic": anthropic_chat, "ollama": ollama_chat}
+    if settings.chat_provider == "echo":  # E2E/demo seam (M09), never silent
+        echo = EchoChatProvider()
+        providers = {"anthropic": echo, "ollama": echo}
     return Container(
         settings=settings,
         feature_flags=LayeredFeatureFlags(
@@ -150,11 +158,15 @@ def build_container(settings: Settings) -> Container:
         chat_dispatcher=CeleryChatDispatcher(celery),
         file_store=LocalFileStore(),
         parser_registry=default_registry(),
-        embedding_provider=OllamaEmbeddingProvider(
-            settings.ollama_url,
-            settings.embedding_model,
-            batch_size=settings.embedding_batch_size,
-            concurrency=settings.embedding_concurrency,
+        embedding_provider=(
+            HashEmbeddingProvider()
+            if settings.embedding_provider == "hash"
+            else OllamaEmbeddingProvider(
+                settings.ollama_url,
+                settings.embedding_model,
+                batch_size=settings.embedding_batch_size,
+                concurrency=settings.embedding_concurrency,
+            )
         ),
         searcher=SqlCandidateSearcher(session_factory, ef_search=settings.hnsw_ef_search),
         chat_runtime=ChatRuntime(

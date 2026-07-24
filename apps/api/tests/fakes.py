@@ -22,7 +22,7 @@ from atlas.domain.ai import (
     ProviderUnavailable,
     Usage,
 )
-from atlas.domain.conversation.entities import Citation, Conversation, Message
+from atlas.domain.conversation.entities import Citation, Conversation, Feedback, Message
 from atlas.domain.conversation.ports import ResolvedCitation
 from atlas.domain.knowledge.entities import (
     Chunk,
@@ -51,6 +51,7 @@ class FakeState:
     conversations: dict[UUID, Conversation] = field(default_factory=dict)
     messages: dict[UUID, Message] = field(default_factory=dict)
     citations: dict[UUID, Citation] = field(default_factory=dict)
+    feedback: dict[UUID, Feedback] = field(default_factory=dict)
     memories: dict[UUID, Memory] = field(default_factory=dict)
 
     def workspace_of_source(self, source_id: UUID) -> UUID | None:
@@ -429,6 +430,25 @@ class FakeCitationRepository:
 
 
 @dataclass
+class FakeFeedbackRepository:
+    state: FakeState
+    messages: FakeMessageRepository
+    pending: dict[UUID, Feedback] = field(default_factory=dict)
+
+    async def add(self, feedback: Feedback) -> None:
+        self.pending[feedback.id] = feedback  # frozen: safe to share
+
+    async def list_for_message(self, workspace_id: UUID, message_id: UUID) -> list[Feedback]:
+        if await self.messages.get(workspace_id, message_id) is None:
+            return []
+        merged = {**self.state.feedback, **self.pending}
+        return sorted(
+            (f for f in merged.values() if f.message_id == message_id),
+            key=lambda f: f.id.int,
+        )
+
+
+@dataclass
 class FakeMemoryRepository:
     state: FakeState
     pending: dict[UUID, Memory] = field(default_factory=dict)
@@ -480,6 +500,7 @@ class FakeUnitOfWork:
     conversations: FakeConversationRepository
     messages: FakeMessageRepository
     citations: FakeCitationRepository
+    feedback: FakeFeedbackRepository
     memories: FakeMemoryRepository
 
     def __init__(self, state: FakeState) -> None:
@@ -494,6 +515,7 @@ class FakeUnitOfWork:
         self.conversations = FakeConversationRepository(self._state)
         self.messages = FakeMessageRepository(self._state, self.conversations)
         self.citations = FakeCitationRepository(self._state, self.messages)
+        self.feedback = FakeFeedbackRepository(self._state, self.messages)
         self.memories = FakeMemoryRepository(self._state)
         return self
 
@@ -516,6 +538,7 @@ class FakeUnitOfWork:
         self._state.conversations.update(self.conversations.pending)
         self._state.messages.update(self.messages.pending)
         self._state.citations.update(self.citations.pending)
+        self._state.feedback.update(self.feedback.pending)
         self._state.memories.update(self.memories.pending)
 
     async def rollback(self) -> None:
@@ -528,6 +551,7 @@ class FakeUnitOfWork:
         self.conversations.pending.clear()
         self.messages.pending.clear()
         self.citations.pending.clear()
+        self.feedback.pending.clear()
         self.memories.pending.clear()
 
 

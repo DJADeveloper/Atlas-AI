@@ -23,9 +23,11 @@ from atlas.presentation.errors import register_exception_handlers
 from atlas.presentation.middleware import TraceIdMiddleware
 from atlas.presentation.routes.conversations import router as conversations_router
 from atlas.presentation.routes.documents import router as documents_router
+from atlas.presentation.routes.feedback import router as feedback_router
 from atlas.presentation.routes.jobs import router as jobs_router
 from atlas.presentation.routes.memories import router as memories_router
 from atlas.presentation.routes.search import router as search_router
+from atlas.presentation.routes.settings import router as settings_router
 from atlas.presentation.routes.sources import router as sources_router
 from atlas.presentation.routes.system import router as system_router
 from atlas.shared.version import get_version
@@ -76,4 +78,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_router)
     app.include_router(conversations_router)
     app.include_router(memories_router)
+    app.include_router(feedback_router)
+    app.include_router(settings_router)
     return app

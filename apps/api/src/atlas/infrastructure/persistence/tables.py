@@ -341,3 +341,17 @@ class CitationRow(_CreatedOnly, Base):
     chunk_id: Mapped[UUID] = mapped_column(ForeignKey("chunks.id"))
     marker: Mapped[int] = mapped_column(Integer)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class FeedbackRow(_CreatedOnly, Base):
+    """Immutable; feeds the eval datasets (M11)."""
+
+    __tablename__ = "feedback"
+    __table_args__ = (CheckConstraint(_in_clause("rating", ("up", "down")), name="rating_allowed"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    message_id: Mapped[UUID] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"))
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    rating: Mapped[str] = mapped_column(Text)
+    categories: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)

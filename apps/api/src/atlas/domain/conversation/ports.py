@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
-from atlas.domain.conversation.entities import Citation, Conversation, Message
+from atlas.domain.conversation.entities import Citation, Conversation, Feedback, Message
 
 
 class ConversationRepository(Protocol):
@@ -62,3 +62,9 @@ class CitationRepository(Protocol):
     ) -> list[ResolvedCitation]:
         """Marker order, joined to chunk text and document title."""
         ...
+
+
+class FeedbackRepository(Protocol):
+    async def add(self, feedback: Feedback) -> None: ...
+
+    async def list_for_message(self, workspace_id: UUID, message_id: UUID) -> list[Feedback]: ...

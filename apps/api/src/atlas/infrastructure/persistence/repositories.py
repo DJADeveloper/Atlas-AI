@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from atlas.domain.conversation.entities import Citation, Conversation, Message
+from atlas.domain.conversation.entities import Citation, Conversation, Feedback, Message
 from atlas.domain.conversation.ports import ResolvedCitation
 from atlas.domain.knowledge.entities import (
     Chunk,
@@ -47,6 +47,8 @@ from atlas.infrastructure.persistence.mappers import (
     conversation_to_row,
     document_from_row,
     document_to_row,
+    feedback_from_row,
+    feedback_to_row,
     job_from_row,
     job_to_row,
     memory_from_row,
@@ -65,6 +67,7 @@ from atlas.infrastructure.persistence.tables import (
     ConversationRow,
     DocumentRow,
     DocumentVersionRow,
+    FeedbackRow,
     IngestionJobRow,
     MemoryRow,
     MessageRow,
@@ -509,6 +512,27 @@ class SqlCitationRepository:
             )
             for citation, text, document_id, title in rows
         ]
+
+
+class SqlFeedbackRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, feedback: Feedback) -> None:
+        self._session.add(feedback_to_row(feedback))
+        await self._session.flush()
+
+    async def list_for_message(self, workspace_id: UUID, message_id: UUID) -> list[Feedback]:
+        stmt = (
+            select(FeedbackRow)
+            .join(MessageRow, FeedbackRow.message_id == MessageRow.id)
+            .join(ConversationRow, MessageRow.conversation_id == ConversationRow.id)
+            .where(ConversationRow.workspace_id == workspace_id)
+            .where(FeedbackRow.message_id == message_id)
+            .order_by(FeedbackRow.id)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [feedback_from_row(row) for row in rows]
 
 
 class SqlMemoryRepository:

@@ -34,6 +34,7 @@ def test_contexts_expose_the_expected_ports() -> None:
         "ConversationRepository",
         "DocumentRepository",
         "DocumentVersionRepository",
+        "FeedbackRepository",
         "IngestionJobRepository",
         "MemoryRepository",
         "MessageRepository",

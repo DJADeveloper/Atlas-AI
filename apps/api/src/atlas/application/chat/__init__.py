@@ -1,5 +1,6 @@
-"""Chat use cases (M07): conversations, streaming exchanges, folding."""
+"""Chat use cases (M07/M09): conversations, streams, folds, feedback."""
 
+from atlas.application.chat.feedback import RecordFeedback
 from atlas.application.chat.use_cases import (
     ABSTENTION_TEXT,
     KEEP_RECENT_TURNS,
@@ -33,6 +34,7 @@ __all__ = [
     "GenerateTitle",
     "GetConversation",
     "ListConversations",
+    "RecordFeedback",
     "SendMessage",
     "SendMessageResult",
     "StreamAnswer",

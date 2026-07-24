@@ -53,7 +53,12 @@ async def health(request: Request) -> HealthResponse:
     runs) so liveness never depends on the container.
     """
     settings: Settings = request.app.state.settings
-    return HealthResponse(status="ok", version=get_version(), profile=settings.profile)
+    override: Profile | None = getattr(request.app.state, "profile_override", None)
+    return HealthResponse(
+        status="ok",
+        version=get_version(),
+        profile=override if override is not None else settings.profile,
+    )
 
 
 async def _check_postgres(engine: AsyncEngine, timeout_seconds: float) -> CheckStatus:

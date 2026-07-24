@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # raise it if golden-set recall misses on laptop-class hardware.
     hnsw_ef_search: int = 40
 
+    # Test/demo provider seams (M09): "echo" answers with a canned
+    # cited stream, "hash" embeds deterministically - the full stack
+    # runs on CI with no Ollama and no API key. Production values are
+    # the defaults; these are compose-level choices, never magic.
+    chat_provider: str = "real"
+    embedding_provider: str = "ollama"
+
     # Grounded-or-silent threshold (M08; atlas.rag.grounding has the
     # RRF arithmetic). Raising it trades fabrication risk for more
     # abstentions; M11's harness tunes it against measured data.
