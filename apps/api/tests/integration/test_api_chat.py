@@ -153,6 +153,7 @@ class TestConversationEndpoints:
 
 class TestSseLifecycle:
     async def test_full_stream_then_persistence(self, api: ChatApi) -> None:
+        await _seed_corpus(api)  # retrieval must ground, not abstain
         conversation_id = await api.create_conversation()
         api.anthropic.streams = [_happy_script(["You anchored Pro ", "at $12/mo."])]
 
@@ -184,6 +185,7 @@ class TestSseLifecycle:
         assert detail.json()["last_message_at"] is not None
 
     async def test_resume_replays_from_last_event_id(self, api: ChatApi) -> None:
+        await _seed_corpus(api)
         conversation_id = await api.create_conversation()
         api.anthropic.streams = [_happy_script(["Hel", "lo"])]
         _, events = await api.stream_message(conversation_id, "hi", key="k-resume")
@@ -212,6 +214,7 @@ class TestSseLifecycle:
         assert response.json()["code"] == "not_found"
 
     async def test_replayed_idempotency_key_reattaches(self, api: ChatApi) -> None:
+        await _seed_corpus(api)
         conversation_id = await api.create_conversation()
         api.anthropic.streams = [_happy_script(["one answer"])]
         _, first = await api.stream_message(conversation_id, "hi", key="same-key")
@@ -254,6 +257,7 @@ class TestSseLifecycle:
     ) -> None:
         """M07 acceptance: kill the provider mid-stream → problem-coded
         SSE error event, no half answer persisted, never a hung stream."""
+        await _seed_corpus(api)
         conversation_id = await api.create_conversation()
         api.anthropic.streams = [
             [ChatEvent(type="text_delta", text="You anch"), ProviderUnavailable("killed")]
@@ -278,6 +282,7 @@ class TestSseLifecycle:
         completes, so the walk-away is expressed by cancelling the
         request task — the same CancelledError a dropped socket
         delivers to the response generator."""
+        await _seed_corpus(api)
         conversation_id = await api.create_conversation()
         gate = asyncio.Event()
         usage = Usage(input_tokens=10, output_tokens=5)
