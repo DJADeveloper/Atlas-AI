@@ -92,6 +92,7 @@ class UserRow(_Stamped, Base):
 class WorkspaceRow(_Stamped, Base):
     __tablename__ = "workspaces"
     __table_args__ = (
+        UniqueConstraint("owner_user_id", "name"),
         CheckConstraint(_in_clause("profile", ("hybrid", "local_only")), name="profile_allowed"),
     )
 

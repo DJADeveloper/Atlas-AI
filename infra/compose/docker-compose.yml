@@ -100,7 +100,7 @@ services:
         "worker",
         "--loglevel=INFO",
         "-Q",
-        "ingest.parse,ingest.embed",
+        "ingest.parse,ingest.embed,chat.background",
       ]
     volumes:
       - ../../apps/api/src:/app/src

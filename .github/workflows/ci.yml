@@ -134,7 +134,8 @@ jobs:
           nohup uv run uvicorn --factory atlas.presentation.app:create_app \
             --port 8000 > /tmp/api.log 2>&1 &
           nohup uv run celery -A atlas.infrastructure.jobs.worker worker \
-            --loglevel INFO > /tmp/worker.log 2>&1 &
+            --loglevel INFO -Q ingest.parse,ingest.embed,chat.background \
+            > /tmp/worker.log 2>&1 &
           for i in $(seq 1 30); do
             curl -fsS http://localhost:8000/health && break
             sleep 1
