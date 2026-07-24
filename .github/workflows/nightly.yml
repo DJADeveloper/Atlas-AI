@@ -54,6 +54,12 @@ jobs:
           cd apps/api
           uv run python scripts/search_latency.py \
             --provider ollama --output search_latency.json
+      - name: First-token latency harness (M07; needs ANTHROPIC_API_KEY)
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          cd apps/api
+          uv run python scripts/chat_latency.py \
+            --provider anthropic --output chat_latency.json
       - uses: actions/upload-artifact@v7
         with:
           name: ingest-throughput-benchmark
@@ -64,3 +70,8 @@ jobs:
           path: |
             apps/api/retrieval_eval.json
             apps/api/search_latency.json
+      - uses: actions/upload-artifact@v7
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          name: chat-first-token-latency
+          path: apps/api/chat_latency.json
