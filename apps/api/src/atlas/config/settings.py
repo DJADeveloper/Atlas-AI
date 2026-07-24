@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     # raise it if golden-set recall misses on laptop-class hardware.
     hnsw_ef_search: int = 40
 
+    # Cloud chat credentials (M07). Environment-only until the keychain
+    # adapter lands (M14): ATLAS_ANTHROPIC_API_KEY. When absent, the
+    # anthropic adapter raises AuthFailed and the hybrid chain degrades
+    # visibly to local models (docs/20 §5.4) — never a silent failure.
+    anthropic_api_key: str | None = None
+
     feature_flags: dict[str, bool] = Field(default_factory=dict)
 
     @property

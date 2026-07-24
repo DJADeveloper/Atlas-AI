@@ -19,6 +19,9 @@ jobs:
     timeout-minutes: 45
     env:
       ATLAS_OLLAMA_URL: http://127.0.0.1:11434
+      # Live provider contract test (M07). Until the repo secret exists
+      # this evaluates to empty and the suite skips itself, visibly.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
