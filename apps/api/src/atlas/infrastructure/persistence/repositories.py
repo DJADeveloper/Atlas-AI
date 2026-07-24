@@ -23,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from atlas.domain.conversation.entities import Citation, Conversation, Message
+from atlas.domain.conversation.ports import ResolvedCitation
 from atlas.domain.knowledge.entities import (
     Chunk,
     Document,
@@ -481,6 +482,33 @@ class SqlCitationRepository:
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return [citation_from_row(row) for row in rows]
+
+    async def list_resolved_for_message(
+        self, workspace_id: UUID, message_id: UUID
+    ) -> list[ResolvedCitation]:
+        stmt = (
+            select(CitationRow, ChunkRow.text, DocumentRow.id, DocumentRow.title)
+            .join(MessageRow, CitationRow.message_id == MessageRow.id)
+            .join(ConversationRow, MessageRow.conversation_id == ConversationRow.id)
+            .join(ChunkRow, CitationRow.chunk_id == ChunkRow.id)
+            .join(DocumentVersionRow, ChunkRow.document_version_id == DocumentVersionRow.id)
+            .join(DocumentRow, DocumentVersionRow.document_id == DocumentRow.id)
+            .where(ConversationRow.workspace_id == workspace_id)
+            .where(CitationRow.message_id == message_id)
+            .order_by(CitationRow.marker)
+        )
+        rows = (await self._session.execute(stmt)).all()
+        return [
+            ResolvedCitation(
+                marker=citation.marker,
+                chunk_id=citation.chunk_id,
+                document_id=document_id,
+                document_title=title,
+                snippet=text[:200],
+                score=citation.score,
+            )
+            for citation, text, document_id, title in rows
+        ]
 
 
 class SqlMemoryRepository:

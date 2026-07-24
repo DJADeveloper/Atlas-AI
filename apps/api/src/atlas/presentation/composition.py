@@ -96,6 +96,7 @@ class Container:
             uow_factory=self.unit_of_work,
             runtime=self.chat_runtime,
             dispatcher=self.chat_dispatcher,
+            retriever=self.hybrid_search(),
         )
 
     def stream_answer(self) -> StreamAnswer:
@@ -103,6 +104,7 @@ class Container:
             uow_factory=self.unit_of_work,
             runtime=self.chat_runtime,
             dispatcher=self.chat_dispatcher,
+            retriever=self.hybrid_search(),
         )
 
     # Memory v1 (M07).
@@ -164,6 +166,7 @@ def build_container(settings: Settings) -> Container:
             cost_meter=CostMeter(),
             prompts=SqlPromptRegistry(session_factory),
             profile=as_routing_profile(settings.profile),
+            abstain_below=settings.abstention_min_score,
         ),
         stream_buffer=RedisStreamBuffer(redis),
         anthropic_chat=anthropic_chat,

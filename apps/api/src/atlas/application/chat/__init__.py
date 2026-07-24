@@ -1,6 +1,7 @@
 """Chat use cases (M07): conversations, streaming exchanges, folding."""
 
 from atlas.application.chat.use_cases import (
+    ABSTENTION_TEXT,
     KEEP_RECENT_TURNS,
     ChatRuntime,
     ChatStreamEvent,
@@ -12,6 +13,7 @@ from atlas.application.chat.use_cases import (
     SendMessage,
     SendMessageResult,
     StreamAnswer,
+    StreamCitation,
     StreamCompleted,
     StreamDelta,
     StreamFailed,
@@ -22,6 +24,7 @@ from atlas.application.chat.use_cases import (
 )
 
 __all__ = [
+    "ABSTENTION_TEXT",
     "KEEP_RECENT_TURNS",
     "ChatRuntime",
     "ChatStreamEvent",
@@ -33,6 +36,7 @@ __all__ = [
     "SendMessage",
     "SendMessageResult",
     "StreamAnswer",
+    "StreamCitation",
     "StreamCompleted",
     "StreamDelta",
     "StreamFailed",

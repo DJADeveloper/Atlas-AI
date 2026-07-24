@@ -5,7 +5,7 @@ background folds (docs/12 §4.3, docs/20 §9, docs/22 §2)."""
 
 import random
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID
 
 import pytest
@@ -14,6 +14,7 @@ from atlas.ai import BreakerBoard, CostMeter, ModelRates, ModelRouter, Resilient
 from atlas.ai.context import ContextAssembler
 from atlas.ai.prompts import StaticPromptRegistry, spec_for
 from atlas.application.chat import (
+    ABSTENTION_TEXT,
     ChatRuntime,
     CreateConversation,
     GenerateTitle,
@@ -21,6 +22,7 @@ from atlas.application.chat import (
     ListConversations,
     SendMessage,
     StreamAnswer,
+    StreamCitation,
     StreamCompleted,
     StreamDelta,
     StreamFailed,
@@ -28,7 +30,10 @@ from atlas.application.chat import (
     StreamUsage,
     SummarizeConversation,
 )
+from atlas.application.chat.use_cases import Retriever
 from atlas.application.memory import RememberFact
+from atlas.application.ports import SearchFilters
+from atlas.application.retrieval import SearchResult
 from atlas.domain.ai import (
     ChatEvent,
     LLMProvider,
@@ -37,6 +42,8 @@ from atlas.domain.ai import (
     Usage,
 )
 from atlas.domain.conversation.entities import Conversation, Message
+from atlas.domain.knowledge.entities import Document, Source
+from atlas.rag import FUSED_RESULT_LIMIT
 from atlas.shared.errors import NotFound
 from atlas.shared.ids import uuid7
 from tests.fakes import (
@@ -93,7 +100,41 @@ async def _no_sleep(_seconds: float) -> None:
     return None
 
 
-def _rig(windows: dict[str, int] | None = None, clock_values: list[float] | None = None) -> Rig:
+@dataclass
+class FakeRetriever:
+    results: list[SearchResult]
+    queries: list[str] = field(default_factory=list)
+
+    async def execute(
+        self,
+        workspace_id: UUID,
+        query: str,
+        *,
+        filters: SearchFilters | None = None,
+        limit: int = FUSED_RESULT_LIMIT,
+    ) -> list[SearchResult]:
+        self.queries.append(query)
+        return self.results
+
+
+def _search_result(document_id: UUID, text: str, score: float) -> SearchResult:
+    return SearchResult(
+        chunk_id=uuid7(),
+        document_id=document_id,
+        text=text,
+        score=score,
+        vector_rank=1,
+        keyword_rank=1,
+        heading_path=(),
+        highlight=None,
+    )
+
+
+def _rig(
+    windows: dict[str, int] | None = None,
+    clock_values: list[float] | None = None,
+    retriever: Retriever | None = None,
+) -> Rig:
     state = FakeState()
     anthropic = ScriptedChatProvider("anthropic", is_local=False)
     ollama = ScriptedChatProvider("ollama", is_local=True)
@@ -129,12 +170,14 @@ def _rig(windows: dict[str, int] | None = None, clock_values: list[float] | None
             uow_factory=uow_factory,
             runtime=runtime,
             dispatcher=dispatcher,
+            retriever=retriever,
             clock_ms=_clock(list(ticks)),
         ),
         stream=StreamAnswer(
             uow_factory=uow_factory,
             runtime=runtime,
             dispatcher=dispatcher,
+            retriever=retriever,
             clock_ms=_clock(list(ticks)),
         ),
         summarize=SummarizeConversation(uow_factory=uow_factory, runtime=runtime),
@@ -487,4 +530,119 @@ class TestGenerateTitle:
         conversation = await rig.seed_conversation(title="My name")
         title = await rig.title.execute(rig.workspace_id, conversation.id)
         assert title is None
+        assert rig.anthropic.requests == []
+
+
+async def _seed_cited_document(rig: Rig, title: str) -> UUID:
+    """A source+document pair so citation resolution finds a title."""
+    source = Source(workspace_id=rig.workspace_id, kind="folder", name="N", uri=f"/{title}")
+    document = Document(source_id=source.id, path=f"{title}.md", mime_type="text/markdown")
+    document.title = title
+    async with rig.uow() as uow:
+        await uow.sources.add(source)
+        await uow.documents.add(document)
+        await uow.commit()
+    return document.id
+
+
+class TestGroundedExchange:
+    async def test_send_message_persists_only_resolvable_citations(self) -> None:
+        doc_a, doc_b = uuid7(), uuid7()
+        retriever = FakeRetriever(
+            [
+                _search_result(doc_a, "The notice period is 30 days.", 0.033),
+                _search_result(doc_b, "Signed off by Maya.", 0.017),
+            ]
+        )
+        rig = _rig(retriever=retriever)
+        conversation = await rig.seed_conversation()
+        rig.anthropic.responses = [
+            _response(SONNET, "anthropic", "30 days [1], signed by Maya [2]. Bogus [9].")
+        ]
+
+        result = await rig.send.execute(rig.workspace_id, conversation.id, "Notice period?")
+
+        assert result.abstained is False
+        assert [c.marker for c in result.citations] == [1, 2]  # [9] never fabricates a row
+        async with rig.uow() as uow:
+            stored = await uow.citations.list_for_message(
+                rig.workspace_id, result.assistant_message.id
+            )
+        assert [c.marker for c in stored] == [1, 2]
+        assert stored[0].chunk_id == retriever.results[0].chunk_id
+        # The packed context used the grounded prompt and numbered evidence.
+        _, request = rig.anthropic.requests[-1]
+        system = request.messages[0].content
+        assert "Cite every factual claim" in system
+        assert "[1] The notice period is 30 days." in system
+
+    async def test_weak_retrieval_abstains_without_dialing_a_model(self) -> None:
+        retriever = FakeRetriever([_search_result(uuid7(), "irrelevant", 0.001)])
+        rig = _rig(retriever=retriever)
+        conversation = await rig.seed_conversation()
+
+        result = await rig.send.execute(rig.workspace_id, conversation.id, "Unanswerable?")
+
+        assert result.abstained is True
+        assert result.citations == []
+        assert rig.anthropic.requests == []  # grounded or silent: no model ran
+        async with rig.uow() as uow:
+            messages = await uow.messages.list_for_conversation(rig.workspace_id, conversation.id)
+        assert messages[-1].abstained is True
+        assert messages[-1].content == ABSTENTION_TEXT
+        assert messages[-1].model == "abstention"
+
+    async def test_stream_emits_citation_when_split_marker_completes(self) -> None:
+        retriever = FakeRetriever([])  # filled in once the document exists
+        rig = _rig(retriever=retriever)
+        document_id = await _seed_cited_document(rig, "pricing-notes")
+        retriever.results = [
+            _search_result(document_id, "Pro anchors at $12/mo.", 0.033),
+        ]
+        conversation = await rig.seed_conversation()
+        usage = Usage(input_tokens=100, output_tokens=20)
+        rig.anthropic.streams = [
+            [
+                ChatEvent(type="text_delta", text="Pro is $12/mo [1"),
+                ChatEvent(type="text_delta", text="]."),
+                ChatEvent(type="done", usage=usage),
+            ]
+        ]
+
+        events = [
+            event async for event in rig.stream.execute(rig.workspace_id, conversation.id, "Price?")
+        ]
+
+        citations = [event for event in events if isinstance(event, StreamCitation)]
+        assert len(citations) == 1
+        assert citations[0].marker == 1
+        assert citations[0].document_title == "pricing-notes"
+        assert citations[0].snippet.startswith("Pro anchors")
+        completed = events[-1]
+        assert isinstance(completed, StreamCompleted)
+        assert completed.citation_count == 1
+        async with rig.uow() as uow:
+            stored = await uow.citations.list_for_message(rig.workspace_id, completed.message.id)
+        assert [c.marker for c in stored] == [1]
+
+    async def test_abstention_stream_sequence_is_flagged(self) -> None:
+        retriever = FakeRetriever([])
+        rig = _rig(retriever=retriever)
+        conversation = await rig.seed_conversation()
+
+        events = [
+            event async for event in rig.stream.execute(rig.workspace_id, conversation.id, "???")
+        ]
+
+        started = events[0]
+        assert isinstance(started, StreamStarted)
+        assert started.model == "abstention"
+        assert isinstance(events[1], StreamDelta)
+        assert events[1].text == ABSTENTION_TEXT
+        usage_event = next(e for e in events if isinstance(e, StreamUsage))
+        assert usage_event.cost_usd == 0.0
+        completed = events[-1]
+        assert isinstance(completed, StreamCompleted)
+        assert completed.message.abstained is True
+        assert completed.citation_count == 0
         assert rig.anthropic.requests == []

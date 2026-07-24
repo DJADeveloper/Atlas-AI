@@ -76,17 +76,28 @@ class UsageView(BaseModel):
     cost_usd: float | None
 
 
+class CitationView(BaseModel):
+    marker: int
+    chunk_id: UUID
+    document_id: UUID
+    document_title: str | None
+    snippet: str
+    score: float | None
+
+
 class MessageView(BaseModel):
     id: UUID
     role: MessageRole
     content: str
     abstained: bool
-    citations: list[dict[str, object]] = Field(default_factory=list)  # populated at M08
+    citations: list[CitationView] = Field(default_factory=list)
     usage: UsageView | None
     created_at: datetime
 
     @classmethod
-    def from_message(cls, message: Message) -> "MessageView":
+    def from_message(
+        cls, message: Message, citations: list[CitationView] | None = None
+    ) -> "MessageView":
         usage = None
         if message.model is not None:
             usage = UsageView(
@@ -101,6 +112,7 @@ class MessageView(BaseModel):
             role=message.role,
             content=message.content,
             abstained=message.abstained,
+            citations=citations if citations is not None else [],
             usage=usage,
             created_at=message.created_at,
         )
@@ -154,9 +166,26 @@ async def list_messages(
     detail: ConversationDetail = await container.get_conversation().execute(
         workspace_id, conversation_id
     )
-    return MessageListResponse(
-        items=[MessageView.from_message(message) for message in detail.messages]
-    )
+    views: list[MessageView] = []
+    async with container.unit_of_work() as uow:
+        for message in detail.messages:
+            citations: list[CitationView] = []
+            if message.role == "assistant" and not message.abstained:
+                citations = [
+                    CitationView(
+                        marker=resolved.marker,
+                        chunk_id=resolved.chunk_id,
+                        document_id=resolved.document_id,
+                        document_title=resolved.document_title,
+                        snippet=resolved.snippet,
+                        score=resolved.score,
+                    )
+                    for resolved in await uow.citations.list_resolved_for_message(
+                        workspace_id, message.id
+                    )
+                ]
+            views.append(MessageView.from_message(message, citations))
+    return MessageListResponse(items=views)
 
 
 @router.post("/conversations/{conversation_id}/messages")

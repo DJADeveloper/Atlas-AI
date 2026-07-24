@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # raise it if golden-set recall misses on laptop-class hardware.
     hnsw_ef_search: int = 40
 
+    # Grounded-or-silent threshold (M08; atlas.rag.grounding has the
+    # RRF arithmetic). Raising it trades fabrication risk for more
+    # abstentions; M11's harness tunes it against measured data.
+    abstention_min_score: float = 0.016
+
     # Cloud chat credentials (M07). Environment-only until the keychain
     # adapter lands (M14): ATLAS_ANTHROPIC_API_KEY. When absent, the
     # anthropic adapter raises AuthFailed and the hybrid chain degrades

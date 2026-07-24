@@ -14,7 +14,13 @@ import pytest
 from atlas.ai import BreakerBoard, CostMeter, ModelRates, ModelRouter, ResilientExecutor
 from atlas.ai.context import ContextAssembler
 from atlas.ai.prompts import StaticPromptRegistry
-from atlas.application.chat import ChatRuntime, ChatStreamEvent, StreamAnswer, StreamStarted
+from atlas.application.chat import (
+    ChatRuntime,
+    ChatStreamEvent,
+    StreamAnswer,
+    StreamCitation,
+    StreamStarted,
+)
 from atlas.domain.ai import ChatEvent, LLMProvider, ProviderError, ProviderUnavailable, Usage
 from atlas.domain.conversation.entities import Conversation
 from atlas.infrastructure.streams import BufferedEvent
@@ -170,6 +176,33 @@ class TestEventContract:
         message_id, _ = await _run_pumped_exchange(rig, _happy_script())
         assert message_id in rig.buffer.finished
         assert rig.buffer.active == set()
+
+    def test_citation_payload_keys_are_pinned(self) -> None:
+        """docs/12 §4.3.3 citation event — the M09 client renders
+        these fields; drift is a broken source panel."""
+        name, payload, terminal = wire_event(
+            StreamCitation(
+                marker=1,
+                chunk_id=uuid7(),
+                document_id=uuid7(),
+                document_title="pricing-notes.md",
+                source_id=uuid7(),
+                snippet="anchor Pro at $12/mo",
+                score=0.0325,
+            )
+        )
+        assert name == "citation"
+        assert terminal is False
+        assert set(payload) == {
+            "marker",
+            "chunk_id",
+            "document_id",
+            "document_title",
+            "source_id",
+            "snippet",
+            "fused_score",
+        }
+        assert payload["fused_score"] == 0.0325
 
     def test_unknown_event_type_is_a_loud_bug(self) -> None:
         bogus = cast("ChatStreamEvent", object())  # deliberately not a stream event

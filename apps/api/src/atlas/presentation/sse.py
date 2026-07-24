@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 
 from atlas.application.chat import (
     ChatStreamEvent,
+    StreamCitation,
     StreamCompleted,
     StreamDelta,
     StreamFailed,
@@ -60,6 +61,20 @@ def wire_event(event: ChatStreamEvent) -> tuple[str, dict[str, object], bool]:
         )
     if isinstance(event, StreamDelta):
         return "content_delta", {"index": event.index, "delta": event.text}, False
+    if isinstance(event, StreamCitation):
+        return (
+            "citation",
+            {
+                "marker": event.marker,
+                "chunk_id": str(event.chunk_id),
+                "document_id": str(event.document_id),
+                "document_title": event.document_title,
+                "source_id": str(event.source_id) if event.source_id else None,
+                "snippet": event.snippet,
+                "fused_score": event.score,
+            },
+            False,
+        )
     if isinstance(event, StreamUsage):
         return (
             "usage",
@@ -81,7 +96,7 @@ def wire_event(event: ChatStreamEvent) -> tuple[str, dict[str, object], bool]:
             {
                 "message_id": str(event.message.id),
                 "stop_reason": "end_turn",
-                "citation_count": 0,  # citations join at M08
+                "citation_count": event.citation_count,
                 "abstained": event.message.abstained,
             },
             True,

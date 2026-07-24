@@ -20,12 +20,17 @@ from atlas.ai.context import ContextAssembler
 from atlas.application.chat import ChatRuntime
 from atlas.config.settings import Settings
 from atlas.domain.ai import ChatEvent, LLMProvider, ProviderError, ProviderUnavailable, Usage
+from atlas.domain.knowledge.entities import Chunk, Document, DocumentVersion, Source
+from atlas.domain.knowledge.values import ContentHash
+from atlas.infrastructure.persistence.bootstrap import ensure_default_workspace
 from atlas.infrastructure.persistence.prompts import SqlPromptRegistry
+from atlas.infrastructure.persistence.tables import EMBEDDING_DIM
+from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 from atlas.infrastructure.streams import RETENTION_SECONDS
 from atlas.presentation.app import create_app
 from atlas.presentation.composition import Container
 from tests.conftest import app_client
-from tests.fakes import ScriptedChatProvider
+from tests.fakes import FakeEmbeddingProvider, ScriptedChatProvider
 
 pytestmark = pytest.mark.integration
 
@@ -103,7 +108,7 @@ async def api(migrated_database_url: str, redis_url: str) -> AsyncIterator[ChatA
     )
     app = create_app(settings)
     async for http in app_client(app):
-        container: Container = app.state.container
+        container = app.state.container
         anthropic = ScriptedChatProvider("anthropic", is_local=False)
         providers: dict[str, LLMProvider] = {
             "anthropic": anthropic,
@@ -119,7 +124,11 @@ async def api(migrated_database_url: str, redis_url: str) -> AsyncIterator[ChatA
             prompts=SqlPromptRegistry(container.session_factory),
             profile="hybrid",
         )
-        app.state.container = replace(container, chat_runtime=runtime)
+        app.state.container = replace(
+            container,
+            chat_runtime=runtime,
+            embedding_provider=FakeEmbeddingProvider(dimensions=EMBEDDING_DIM),
+        )
         yield ChatApi(http, app.state.container, anthropic)
 
 
@@ -358,3 +367,108 @@ class TestMemoriesCrud:
             "/api/v1/memories", json={"kind": "project_fact", "content": "fee is 50k"}
         )
         assert response.status_code == 422
+
+
+CITED_TEXT = "The Meridian contract notice period is 30 days."
+
+
+async def _seed_corpus(api: ChatApi) -> None:
+    """One embedded chunk in the DEFAULT workspace so retrieval has
+    evidence; vectors come from the same fake the app now embeds
+    queries with (the test_api_search pattern)."""
+    container = api.container
+    workspace_id = await ensure_default_workspace(container.session_factory)
+    source = Source(workspace_id=workspace_id, kind="folder", name="Docs", uri="/seeded-chat")
+    document = Document(source_id=source.id, path="meridian.md", mime_type="text/markdown")
+    document.title = "meridian.md"
+    version = DocumentVersion(
+        document_id=document.id, content_hash=ContentHash("b" * 64), size_bytes=1, parser="md"
+    )
+    vectors = await container.embedding_provider.embed_documents([CITED_TEXT])
+    chunk = Chunk(
+        document_version_id=version.id,
+        ordinal=0,
+        text=CITED_TEXT,
+        token_count=8,
+        content_hash=ContentHash("e" * 64),
+        embedding=vectors[0],
+        embedding_model=container.embedding_provider.model,
+    )
+    async with SqlAlchemyUnitOfWork(container.session_factory) as uow:
+        await uow.sources.add(source)
+        await uow.documents.add(document)
+        await uow.document_versions.add(version)
+        await uow.chunks.add_all([chunk])
+        document.set_current_version(version.id)  # flip after the version exists
+        await uow.documents.save(document)
+        await uow.commit()
+
+
+class TestGroundedAnswers:
+    async def test_cited_answer_end_to_end(self, api: ChatApi) -> None:
+        """M08 acceptance path: question → grounded prompt → [n] in the
+        stream → citation SSE event → persisted citations rows pointing
+        at real chunks → resolved citations on the message list → a
+        non-null prompt_version_id in the database."""
+        await _seed_corpus(api)
+        conversation_id = await api.create_conversation()
+        api.anthropic.streams = [_happy_script(["The notice period is 30 days [1", "]."])]
+
+        status, events = await api.stream_message(
+            conversation_id, "What is the Meridian notice period?", key="k-cite"
+        )
+
+        assert status == 200
+        names = [e.event for e in events]
+        assert names == [
+            "message_start",
+            "content_delta",
+            "content_delta",
+            "citation",
+            "usage",
+            "message_end",
+        ]
+        citation = next(e for e in events if e.event == "citation")
+        assert citation.data["marker"] == 1
+        assert citation.data["document_title"] == "meridian.md"
+        end = events[-1]
+        assert end.data["citation_count"] == 1
+        assert end.data["abstained"] is False
+
+        # Persisted rows resolve to the real chunk, and the view carries them.
+        messages = await api.http.get(f"/api/v1/conversations/{conversation_id}/messages")
+        items = messages.json()["items"]
+        assert items[1]["citations"][0]["marker"] == 1
+        assert items[1]["citations"][0]["document_title"] == "meridian.md"
+        assert CITED_TEXT.startswith(items[1]["citations"][0]["snippet"][:20])
+
+        # M08 acceptance: the chat path records a non-null prompt_version_id.
+        workspace_id = await ensure_default_workspace(api.container.session_factory)
+        async with SqlAlchemyUnitOfWork(api.container.session_factory) as uow:
+            stored = await uow.messages.get(workspace_id, UUID(items[1]["id"]))
+        assert stored is not None
+        assert stored.prompt_version_id is not None
+
+    async def test_unanswerable_question_abstains_without_a_model(self, api: ChatApi) -> None:
+        """Empty index → threshold abstention: flagged message_end,
+        zero citations, zero provider dials, honest persisted row."""
+        conversation_id = await api.create_conversation()
+        dialed_before = len(api.anthropic.requests)
+
+        status, events = await api.stream_message(
+            conversation_id, "What is the quarterly synergy cadence?", key="k-abstain"
+        )
+
+        assert status == 200
+        assert len(api.anthropic.requests) == dialed_before  # no model ran
+        start = events[0]
+        assert start.data["model"] == "abstention"
+        end = events[-1]
+        assert end.event == "message_end"
+        assert end.data["abstained"] is True
+        assert end.data["citation_count"] == 0
+
+        messages = await api.http.get(f"/api/v1/conversations/{conversation_id}/messages")
+        items = messages.json()["items"]
+        assert items[1]["abstained"] is True
+        assert items[1]["citations"] == []

@@ -22,6 +22,7 @@ lost task costs a nicety, never data.
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
+from typing import Protocol
 from uuid import UUID
 
 from atlas.ai.context import AssembledContext, ContextAssembler, ContextSources, Turn
@@ -30,10 +31,19 @@ from atlas.ai.executor import ResilientExecutor
 from atlas.ai.prompts import PromptProvider, RegisteredPrompt
 from atlas.ai.routing import ModelRouter, Profile, RoutePlan
 from atlas.application.memory.use_cases import rank_memories
-from atlas.application.ports import ChatDispatcher, UnitOfWork
+from atlas.application.ports import ChatDispatcher, SearchFilters, UnitOfWork
+from atlas.application.retrieval import SearchResult
 from atlas.domain.ai.errors import ProviderError
 from atlas.domain.ai.provider import ChatRequest, ProviderChatMessage, StopReason, Usage
-from atlas.domain.conversation.entities import Conversation, Message
+from atlas.domain.conversation.entities import Citation, Conversation, Message
+from atlas.rag import (
+    FUSED_RESULT_LIMIT,
+    GroundedContext,
+    GroundingChunk,
+    MarkerAccumulator,
+    extract_markers,
+    select_grounding,
+)
 from atlas.shared.errors import NotFound
 from atlas.shared.ids import uuid7
 
@@ -41,9 +51,35 @@ from atlas.shared.ids import uuid7
 # recent exchange as actually written, never only summarized.
 KEEP_RECENT_TURNS = 6
 
-# Which registered prompt anchors the exchange; retrieval-grounded
-# answering (chat.grounded) takes over in the M08 wiring commit.
+# Ungrounded fallback prompt (no retriever wired, e.g. worker-side
+# flows); the API path grounds every exchange with chat.grounded.
 CHAT_PROMPT_NAME = "chat.system"
+GROUNDED_PROMPT_NAME = "chat.grounded"
+
+# The abstention answer is deterministic and free: no model runs when
+# retrieval scored below threshold ("grounded or silent", spine SS2.4).
+ABSTENTION_MODEL = "abstention"
+ABSTENTION_PROVIDER = "atlas"
+ABSTENTION_TEXT = (
+    "I don't have anything in your indexed documents that answers this. "
+    "Try rephrasing, or add the relevant files to a source and let "
+    "indexing finish."
+)
+
+
+class Retriever(Protocol):
+    """Structural seam for HybridSearch (M06) - chat depends on the
+    shape, tests inject canned results."""
+
+    async def execute(
+        self,
+        workspace_id: UUID,
+        query: str,
+        *,
+        filters: SearchFilters | None = None,
+        limit: int = FUSED_RESULT_LIMIT,
+    ) -> list[SearchResult]: ...
+
 
 MAX_TITLE_WORDS = 6
 
@@ -104,6 +140,7 @@ class ChatRuntime:
     cost_meter: CostMeter
     prompts: PromptProvider
     profile: Profile
+    abstain_below: float = 0.016  # see atlas.rag.grounding for the arithmetic
 
 
 @dataclass(frozen=True)
@@ -113,6 +150,8 @@ class _PreparedExchange:
     assembled: AssembledContext
     plan: RoutePlan
     prompt: RegisteredPrompt
+    grounded: GroundedContext
+    citable: tuple[GroundingChunk, ...]  # entries that survived packing
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,11 +174,13 @@ class _ExchangeBase:
         uow_factory: Callable[[], UnitOfWork],
         runtime: ChatRuntime,
         dispatcher: ChatDispatcher,
+        retriever: Retriever | None = None,
         clock_ms: Callable[[], float] = _monotonic_ms,
     ) -> None:
         self._uow_factory = uow_factory
         self._runtime = runtime
         self._dispatcher = dispatcher
+        self._retriever = retriever
         self._clock_ms = clock_ms
 
     @property
@@ -154,7 +195,6 @@ class _ExchangeBase:
         self, workspace_id: UUID, conversation_id: UUID, content: str, trace_id: str | None
     ) -> _PreparedExchange:
         plan = self._runtime.router.plan("chat", self._profile)
-        prompt = await self._runtime.prompts.get(CHAT_PROMPT_NAME)
         async with self._uow_factory() as uow:
             conversation = await uow.conversations.get(workspace_id, conversation_id)
             if conversation is None or conversation.is_deleted:
@@ -169,6 +209,26 @@ class _ExchangeBase:
             await uow.conversations.save(conversation)
             await uow.commit()
 
+        grounded = GroundedContext(entries=(), abstain=False)
+        if self._retriever is not None:
+            results = await self._retriever.execute(workspace_id, content)
+            grounded = select_grounding(
+                [
+                    GroundingChunk(
+                        chunk_id=result.chunk_id,
+                        document_id=result.document_id,
+                        text=result.text,
+                        score=result.score,
+                    )
+                    for result in results
+                ],
+                abstain_below=self._runtime.abstain_below,
+            )
+
+        grounded_answering = self._retriever is not None and bool(grounded.entries)
+        prompt = await self._runtime.prompts.get(
+            GROUNDED_PROMPT_NAME if grounded_answering else CHAT_PROMPT_NAME
+        )
         turns = _verbatim_turns(conversation, [*history, user_message])
         ranked = rank_memories(memories, content)
         assembled = self._runtime.assembler.assemble(
@@ -178,6 +238,7 @@ class _ExchangeBase:
             turns=turns,
             sources=ContextSources(
                 memories=[f"[{memory.kind}] {memory.content}" for memory in ranked],
+                chunks=[entry.text for entry in grounded.entries],
                 summary=conversation.summary,
             ),
         )
@@ -187,16 +248,26 @@ class _ExchangeBase:
             assembled=assembled,
             plan=plan,
             prompt=prompt,
+            grounded=grounded,
+            # The assembler keeps a prefix under budget pressure, so
+            # markers never renumber - only the citable tail shrinks.
+            citable=grounded.entries[: assembled.included_chunks],
         )
 
     async def _persist_answer(
-        self, workspace_id: UUID, prepared: _PreparedExchange, answer: Message
+        self,
+        workspace_id: UUID,
+        prepared: _PreparedExchange,
+        answer: Message,
+        citations: list[Citation] | None = None,
     ) -> None:
         async with self._uow_factory() as uow:
             conversation = await uow.conversations.get(workspace_id, answer.conversation_id)
             if conversation is None:  # deleted mid-stream: the answer has no home
                 return
             await uow.messages.add(answer)
+            if citations:
+                await uow.citations.add_all(citations)
             conversation.touch()
             await uow.conversations.save(conversation)
             await uow.commit()
@@ -206,6 +277,58 @@ class _ExchangeBase:
             )
         if conversation.title is None:
             self._dispatcher.dispatch_title(workspace_id, answer.conversation_id, answer.trace_id)
+
+    def _citations_for(
+        self, prepared: _PreparedExchange, message_id: UUID, markers: list[int]
+    ) -> list[Citation]:
+        """Emitted markers -> rows. Only markers inside the offered
+        evidence range become citations; a hallucinated [9] stays in
+        the text for the eval to see but never fabricates a row."""
+        return [
+            Citation(
+                message_id=message_id,
+                chunk_id=prepared.citable[marker - 1].chunk_id,
+                marker=marker,
+                score=prepared.citable[marker - 1].score,
+            )
+            for marker in markers
+            if 1 <= marker <= len(prepared.citable)
+        ]
+
+    async def _resolve_citation(
+        self, workspace_id: UUID, prepared: _PreparedExchange, marker: int
+    ) -> "StreamCitation":
+        entry = prepared.citable[marker - 1]
+        async with self._uow_factory() as uow:
+            document = await uow.documents.get(workspace_id, entry.document_id)
+        return StreamCitation(
+            marker=marker,
+            chunk_id=entry.chunk_id,
+            document_id=entry.document_id,
+            document_title=document.title if document is not None else None,
+            source_id=document.source_id if document is not None else None,
+            snippet=entry.text[:200],
+            score=entry.score,
+        )
+
+    def _abstention_message(
+        self, prepared: _PreparedExchange, message_id: UUID, trace_id: str | None
+    ) -> Message:
+        return Message(
+            id=message_id,
+            conversation_id=prepared.conversation.id,
+            role="assistant",
+            content=ABSTENTION_TEXT,
+            abstained=True,
+            model=ABSTENTION_MODEL,
+            provider=ABSTENTION_PROVIDER,
+            prompt_version_id=prepared.prompt.version_id,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+            latency_ms=0,
+            trace_id=trace_id,
+        )
 
     def _answer_message(
         self,
@@ -238,6 +361,8 @@ class SendMessageResult:
     assistant_message: Message
     degraded: bool
     stop_reason: StopReason
+    citations: list[Citation]
+    abstained: bool
 
 
 class SendMessage(_ExchangeBase):
@@ -252,12 +377,26 @@ class SendMessage(_ExchangeBase):
         trace_id: str | None = None,
     ) -> SendMessageResult:
         prepared = await self._prepare(workspace_id, conversation_id, content, trace_id)
+        if prepared.grounded.abstain:
+            answer = self._abstention_message(prepared, uuid7(), trace_id)
+            await self._persist_answer(workspace_id, prepared, answer)
+            return SendMessageResult(
+                user_message=prepared.user_message,
+                assistant_message=answer,
+                degraded=False,
+                stop_reason="end_turn",
+                citations=[],
+                abstained=True,
+            )
         request = ChatRequest(
             messages=prepared.assembled.messages, max_tokens=prepared.plan.max_tokens
         )
         started = self._clock_ms()
         result = await self._executor.complete(prepared.plan, request, profile=self._profile)
         latency_ms = int(self._clock_ms() - started)
+        message_id = uuid7()
+        content_text = result.response.message.content
+        citations = self._citations_for(prepared, message_id, extract_markers(content_text))
         answer = self._answer_message(
             prepared,
             _Served(
@@ -266,16 +405,18 @@ class SendMessage(_ExchangeBase):
                 usage=result.response.usage,
                 latency_ms=latency_ms,
             ),
-            message_id=uuid7(),
-            content=result.response.message.content,
+            message_id=message_id,
+            content=content_text,
             trace_id=trace_id,
         )
-        await self._persist_answer(workspace_id, prepared, answer)
+        await self._persist_answer(workspace_id, prepared, answer, citations)
         return SendMessageResult(
             user_message=prepared.user_message,
             assistant_message=answer,
             degraded=result.degraded,
             stop_reason=result.response.stop_reason,
+            citations=citations,
+            abstained=False,
         )
 
 
@@ -309,8 +450,23 @@ class StreamUsage:
 
 
 @dataclass(frozen=True, slots=True)
+class StreamCitation:
+    """An [n] marker resolved against the offered evidence - emitted
+    the moment the marker's closing bracket arrives in the stream."""
+
+    marker: int
+    chunk_id: UUID
+    document_id: UUID
+    document_title: str | None
+    source_id: UUID | None
+    snippet: str
+    score: float
+
+
+@dataclass(frozen=True, slots=True)
 class StreamCompleted:
     message: Message
+    citation_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,7 +478,9 @@ class StreamFailed:
     partial_text: str
 
 
-ChatStreamEvent = StreamStarted | StreamDelta | StreamUsage | StreamCompleted | StreamFailed
+ChatStreamEvent = (
+    StreamStarted | StreamDelta | StreamCitation | StreamUsage | StreamCompleted | StreamFailed
+)
 
 
 class StreamAnswer(_ExchangeBase):
@@ -346,6 +504,10 @@ class StreamAnswer(_ExchangeBase):
         trace_id: str | None = None,
     ) -> AsyncIterator[ChatStreamEvent]:
         prepared = await self._prepare(workspace_id, conversation_id, content, trace_id)
+        if prepared.grounded.abstain:
+            async for abstain_event in self._abstain_stream(workspace_id, prepared, trace_id):
+                yield abstain_event
+            return
         request = ChatRequest(
             messages=prepared.assembled.messages, max_tokens=prepared.plan.max_tokens
         )
@@ -363,15 +525,17 @@ class StreamAnswer(_ExchangeBase):
             trace_id=trace_id,
             degraded=degraded,
         )
-        parts: list[str] = []
+        accumulator = MarkerAccumulator()
         usage: Usage | None = None
         index = 0
         try:
             async for event in events:
                 if event.type == "text_delta" and event.text:
                     yield StreamDelta(index=index, text=event.text)
-                    parts.append(event.text)
                     index += 1
+                    for marker in accumulator.feed(event.text):
+                        if 1 <= marker <= len(prepared.citable):
+                            yield await self._resolve_citation(workspace_id, prepared, marker)
                 elif event.type in ("usage", "done") and event.usage is not None:
                     usage = event.usage
         except ProviderError as error:
@@ -380,7 +544,7 @@ class StreamAnswer(_ExchangeBase):
                 title=error.title,
                 status=error.status,
                 detail=error.detail,
-                partial_text="".join(parts),
+                partial_text=accumulator.text,
             )
             return
         latency_ms = int(self._clock_ms() - started)
@@ -390,17 +554,18 @@ class StreamAnswer(_ExchangeBase):
                 title="Malformed provider response",
                 status=502,
                 detail="stream ended without usage accounting",
-                partial_text="".join(parts),
+                partial_text=accumulator.text,
             )
             return
+        citations = self._citations_for(prepared, message_id, list(accumulator.markers))
         answer = self._answer_message(
             prepared,
             _Served(model=rung.model, provider=rung.provider, usage=usage, latency_ms=latency_ms),
             message_id=message_id,
-            content="".join(parts),
+            content=accumulator.text,
             trace_id=trace_id,
         )
-        await self._persist_answer(workspace_id, prepared, answer)
+        await self._persist_answer(workspace_id, prepared, answer, citations)
         yield StreamUsage(
             model=rung.model,
             provider=rung.provider,
@@ -411,7 +576,37 @@ class StreamAnswer(_ExchangeBase):
             latency_ms=latency_ms,
             stop_reason="end_turn",  # tool stops join with the M12 tool runtime
         )
-        yield StreamCompleted(message=answer)
+        yield StreamCompleted(message=answer, citation_count=len(citations))
+
+    async def _abstain_stream(
+        self, workspace_id: UUID, prepared: _PreparedExchange, trace_id: str | None
+    ) -> AsyncIterator[ChatStreamEvent]:
+        """The grounded-or-silent path: no model runs, the answer is
+        deterministic, and the abstained flag rides message_end so the
+        UI can render honesty distinctly (M08 acceptance)."""
+        answer = self._abstention_message(prepared, uuid7(), trace_id)
+        yield StreamStarted(
+            message_id=answer.id,
+            conversation_id=prepared.conversation.id,
+            model=ABSTENTION_MODEL,
+            provider=ABSTENTION_PROVIDER,
+            prompt_version=prepared.prompt.label,
+            trace_id=trace_id,
+            degraded=False,
+        )
+        yield StreamDelta(index=0, text=ABSTENTION_TEXT)
+        await self._persist_answer(workspace_id, prepared, answer)
+        yield StreamUsage(
+            model=ABSTENTION_MODEL,
+            provider=ABSTENTION_PROVIDER,
+            prompt_version=prepared.prompt.label,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+            latency_ms=0,
+            stop_reason="end_turn",
+        )
+        yield StreamCompleted(message=answer, citation_count=0)
 
 
 @dataclass(frozen=True)
@@ -545,6 +740,7 @@ def _verbatim_turns(conversation: Conversation, history: list[Message]) -> list[
 
 
 __all__ = [
+    "ABSTENTION_TEXT",
     "KEEP_RECENT_TURNS",
     "ChatRuntime",
     "ChatStreamEvent",
@@ -556,6 +752,7 @@ __all__ = [
     "SendMessage",
     "SendMessageResult",
     "StreamAnswer",
+    "StreamCitation",
     "StreamCompleted",
     "StreamDelta",
     "StreamFailed",

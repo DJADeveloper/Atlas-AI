@@ -11,6 +11,7 @@ from atlas.domain.conversation.ports import (
     CitationRepository,
     ConversationRepository,
     MessageRepository,
+    ResolvedCitation,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "Message",
     "MessageRepository",
     "MessageRole",
+    "ResolvedCitation",
 ]

@@ -23,6 +23,7 @@ from atlas.domain.ai import (
     Usage,
 )
 from atlas.domain.conversation.entities import Citation, Conversation, Message
+from atlas.domain.conversation.ports import ResolvedCitation
 from atlas.domain.knowledge.entities import (
     Chunk,
     Document,
@@ -398,6 +399,33 @@ class FakeCitationRepository:
             (c for c in self._merged().values() if c.message_id == message_id),
             key=lambda c: c.marker,
         )
+
+    async def list_resolved_for_message(
+        self, workspace_id: UUID, message_id: UUID
+    ) -> list[ResolvedCitation]:
+        resolved: list[ResolvedCitation] = []
+        for citation in await self.list_for_message(workspace_id, message_id):
+            chunk = self.state.chunks.get(citation.chunk_id)
+            document_id = None
+            title = None
+            if chunk is not None:
+                version = self.state.versions.get(chunk.document_version_id)
+                if version is not None:
+                    document = self.state.documents.get(version.document_id)
+                    if document is not None:
+                        document_id = document.id
+                        title = document.title
+            resolved.append(
+                ResolvedCitation(
+                    marker=citation.marker,
+                    chunk_id=citation.chunk_id,
+                    document_id=document_id if document_id is not None else citation.chunk_id,
+                    document_title=title,
+                    snippet=(chunk.text[:200] if chunk is not None else ""),
+                    score=citation.score,
+                )
+            )
+        return resolved
 
 
 @dataclass
