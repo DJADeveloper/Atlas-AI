@@ -26,6 +26,7 @@ from atlas.infrastructure.persistence.prompts import SqlPromptRegistry
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 from atlas.infrastructure.providers.anthropic import AnthropicChatProvider
 from atlas.infrastructure.providers.ollama import OllamaChatProvider, OllamaEmbeddingProvider
+from atlas.infrastructure.providers.testing import EchoChatProvider, HashEmbeddingProvider
 from atlas.infrastructure.watcher.filesystem import LocalFileStore
 from atlas.observability.logging import configure_logging
 
@@ -61,6 +62,9 @@ def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
         "anthropic": AnthropicChatProvider(resolved.anthropic_api_key),
         "ollama": OllamaChatProvider(resolved.ollama_url),
     }
+    if resolved.chat_provider == "echo":  # E2E/demo seam (M09), never silent
+        echo = EchoChatProvider()
+        providers = {"anthropic": echo, "ollama": echo}
     chat_runtime = ChatRuntime(
         router=ModelRouter(),
         executor=ResilientExecutor(providers, BreakerBoard(time.monotonic), sleep=asyncio.sleep),
@@ -81,11 +85,15 @@ def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
         ),
         embed_document=EmbedDocument(
             uow_factory=uow_factory,
-            provider=OllamaEmbeddingProvider(
-                resolved.ollama_url,
-                resolved.embedding_model,
-                batch_size=resolved.embedding_batch_size,
-                concurrency=resolved.embedding_concurrency,
+            provider=(
+                HashEmbeddingProvider()
+                if resolved.embedding_provider == "hash"
+                else OllamaEmbeddingProvider(
+                    resolved.ollama_url,
+                    resolved.embedding_model,
+                    batch_size=resolved.embedding_batch_size,
+                    concurrency=resolved.embedding_concurrency,
+                )
             ),
         ),
         summarize_conversation=SummarizeConversation(uow_factory=uow_factory, runtime=chat_runtime),
