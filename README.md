@@ -29,17 +29,17 @@ production-grade system built on six commitments:
 
 **Architecture: approved and frozen** — the founding package (28 deliverables
 and a 25-milestone plan) lives in [`docs/`](docs/README.md); changes require
-an ADR. **Implementation: M05 (Chunking & embeddings) delivered** —
-ingested documents now become retrievable, locally-embedded chunks:
-structure-aware chunking over a per-format block IR (512-token target,
-15% overlap, 1,024 hard max, breadcrumb-prefixed embedded text), a
-`nomic-embed-text` Ollama adapter behind the embedding port (768d,
-batched, task-prefixed), Postgres-as-embedding-cache keyed by
-`(model, content_hash)` so unchanged content is never re-embedded, an
-atomic index swap per document version, HNSW cosine search proven by
-`EXPLAIN`, and a scripted nightly throughput benchmark — on the
-M01–M04 pipeline: watched folders, hash gate, retry ladder into
-dead-letter, source/job APIs.
+an ADR. **Implementation: M06 (Hybrid retrieval) delivered** — Atlas
+now *finds things*: `POST /search` runs the canonical spine §10
+pipeline (24 pgvector-cosine + 24 FTS candidates, RRF fusion k=60,
+optional reranker port, final top 8) with SQL-enforced filters,
+component ranks for debuggability, and `ts_headline` highlights;
+document read endpoints back the future source viewer; and retrieval
+quality is pinned by `golden_v1` (53 labeled queries over a committed
+fixture corpus) with nightly Recall@8/MRR and 10k-chunk p95 latency
+harnesses. Underneath: the M05 chunking/embedding pipeline
+(structure-aware chunks, local `nomic-embed-text`, Postgres-as-cache,
+atomic index swaps) on the M01–M04 foundation.
 
 ## Quickstart
 
