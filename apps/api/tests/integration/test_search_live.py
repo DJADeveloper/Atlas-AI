@@ -73,12 +73,16 @@ class SearchRig:
             )
             for index, (text_value, seed) in enumerate(zip(texts, seeds, strict=True))
         ]
-        if current:
-            document.set_current_version(version.id)
         async with self.uow() as uow:
             await uow.documents.add(document)
             await uow.document_versions.add(version)
             await uow.chunks.add_all(chunks)
+            if current:
+                # Flip AFTER the version row exists — the same order the
+                # real pipeline uses; the FK forbids pointing at an
+                # unflushed version (ADR-0011 insert ordering).
+                document.set_current_version(version.id)
+                await uow.documents.save(document)
             await uow.commit()
         return document, version, chunks
 
@@ -274,11 +278,12 @@ class TestHybridEndToEnd:
             )
             for index, text_value in enumerate([target_text, decoy_text])
         ]
-        document.set_current_version(version.id)
         async with rig.uow() as uow:
             await uow.documents.add(document)
             await uow.document_versions.add(version)
             await uow.chunks.add_all(chunks)
+            document.set_current_version(version.id)
+            await uow.documents.save(document)
             await uow.commit()
 
         search = HybridSearch(rig.searcher, provider)

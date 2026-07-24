@@ -118,11 +118,12 @@ async def _seed(factory: async_sessionmaker[AsyncSession], workspace_id: UUID) -
             )
             for ordinal in range(CHUNKS_PER_DOCUMENT)
         ]
-        document.set_current_version(version.id)
         async with SqlAlchemyUnitOfWork(factory) as uow:
             await uow.documents.add(document)
             await uow.document_versions.add(version)
             await uow.chunks.add_all(chunks)
+            document.set_current_version(version.id)  # flip after the version exists
+            await uow.documents.save(document)
             await uow.commit()
 
 

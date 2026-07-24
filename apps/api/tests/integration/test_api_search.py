@@ -78,12 +78,13 @@ async def _seed(rig: Api) -> None:
         )
         for index, text_value in enumerate([TARGET_TEXT, OTHER_TEXT])
     ]
-    document.set_current_version(version.id)
     async with SqlAlchemyUnitOfWork(rig.factory) as uow:
         await uow.sources.add(source)
         await uow.documents.add(document)
         await uow.document_versions.add(version)
         await uow.chunks.add_all(chunks)
+        document.set_current_version(version.id)  # flip after the version exists
+        await uow.documents.save(document)
         await uow.commit()
     rig.document_id = str(document.id)
     rig.chunk_ids = [str(chunk.id) for chunk in chunks]
