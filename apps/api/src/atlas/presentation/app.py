@@ -21,7 +21,9 @@ from atlas.observability.logging import configure_logging
 from atlas.presentation.composition import build_container, close_container
 from atlas.presentation.errors import register_exception_handlers
 from atlas.presentation.middleware import TraceIdMiddleware
+from atlas.presentation.routes.documents import router as documents_router
 from atlas.presentation.routes.jobs import router as jobs_router
+from atlas.presentation.routes.search import router as search_router
 from atlas.presentation.routes.sources import router as sources_router
 from atlas.presentation.routes.system import router as system_router
 from atlas.shared.version import get_version
@@ -60,4 +62,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(system_router)
     app.include_router(sources_router)
     app.include_router(jobs_router)
+    app.include_router(search_router)
+    app.include_router(documents_router)
     return app

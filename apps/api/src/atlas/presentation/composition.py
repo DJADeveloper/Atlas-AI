@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from atlas.application.retrieval import HybridSearch
 from atlas.config.feature_flags import FeatureFlags, LayeredFeatureFlags
 from atlas.config.settings import Settings
 from atlas.infrastructure.jobs.celery_app import create_celery_app
@@ -24,6 +25,8 @@ from atlas.infrastructure.jobs.dispatcher import CeleryIngestionDispatcher
 from atlas.infrastructure.parsing import ParserRegistry, default_registry
 from atlas.infrastructure.persistence.feature_flags import SqlFlagOverridesReader
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
+from atlas.infrastructure.providers.ollama import OllamaEmbeddingProvider
+from atlas.infrastructure.search import SqlCandidateSearcher
 from atlas.infrastructure.watcher.filesystem import LocalFileStore
 
 
@@ -39,10 +42,16 @@ class Container:
     dispatcher: CeleryIngestionDispatcher
     file_store: LocalFileStore
     parser_registry: ParserRegistry
+    embedding_provider: OllamaEmbeddingProvider
+    searcher: SqlCandidateSearcher
 
     def unit_of_work(self) -> SqlAlchemyUnitOfWork:
         """One Unit of Work per use-case invocation (application port)."""
         return SqlAlchemyUnitOfWork(self.session_factory)
+
+    def hybrid_search(self) -> HybridSearch:
+        """spine §10 retrieval; reranker off by default."""
+        return HybridSearch(self.searcher, self.embedding_provider)
 
 
 def build_container(settings: Settings) -> Container:
@@ -65,9 +74,17 @@ def build_container(settings: Settings) -> Container:
         dispatcher=CeleryIngestionDispatcher(create_celery_app(settings)),
         file_store=LocalFileStore(),
         parser_registry=default_registry(),
+        embedding_provider=OllamaEmbeddingProvider(
+            settings.ollama_url,
+            settings.embedding_model,
+            batch_size=settings.embedding_batch_size,
+            concurrency=settings.embedding_concurrency,
+        ),
+        searcher=SqlCandidateSearcher(session_factory, ef_search=settings.hnsw_ef_search),
     )
 
 
 async def close_container(container: Container) -> None:
+    await container.embedding_provider.aclose()
     await container.redis.aclose()
     await container.db_engine.dispose()
