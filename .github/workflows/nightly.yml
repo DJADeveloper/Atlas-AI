@@ -1,7 +1,8 @@
 # Nightly suites (docs/53): long-running E2E that would blow the PR
 # budget — the 1,000-file corpus (M04), the live nomic-embed-text
-# adapter check and the throughput benchmark (M05); eval trend runs
-# join at M11.
+# adapter check and the throughput benchmark (M05), the golden-dataset
+# retrieval eval and search latency harness (M06); the formal eval
+# trend gate joins at M11.
 name: nightly
 
 on:
@@ -40,7 +41,23 @@ jobs:
           cd apps/api
           uv run python scripts/ingest_throughput.py \
             --docs 300 --provider ollama --output benchmark.json
+      - name: Retrieval golden eval (real model)
+        run: |
+          cd apps/api
+          uv run python scripts/retrieval_eval.py \
+            --provider ollama --output retrieval_eval.json
+      - name: Search latency harness (10k chunks, 200 requests)
+        run: |
+          cd apps/api
+          uv run python scripts/search_latency.py \
+            --provider ollama --output search_latency.json
       - uses: actions/upload-artifact@v7
         with:
           name: ingest-throughput-benchmark
           path: apps/api/benchmark.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: retrieval-quality
+          path: |
+            apps/api/retrieval_eval.json
+            apps/api/search_latency.json

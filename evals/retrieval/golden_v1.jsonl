@@ -1,0 +1,53 @@
+{"id": "q01", "kind": "paraphrase", "query": "how many vacation days do I get each year", "relevant": [{"path": "handbook-pto.md", "must_contain": "25 days"}]}
+{"id": "q02", "kind": "paraphrase", "query": "can I carry unused holiday over into next year", "relevant": [{"path": "handbook-pto.md", "must_contain": "10 days"}]}
+{"id": "q03", "kind": "paraphrase", "query": "how much leave do new parents get", "relevant": [{"path": "handbook-pto.md", "must_contain": "20 weeks"}]}
+{"id": "q04", "kind": "keyword", "query": "parental leave primary caregiver weeks", "relevant": [{"path": "handbook-pto.md", "must_contain": "20 weeks"}]}
+{"id": "q05", "kind": "paraphrase", "query": "will the company pay me back if I buy a keyboard", "relevant": [{"path": "handbook-expenses.md", "must_contain": "500 euros"}]}
+{"id": "q06", "kind": "keyword", "query": "per-diem international travel receipts", "relevant": [{"path": "handbook-expenses.md", "must_contain": "65 euros"}]}
+{"id": "q07", "kind": "paraphrase", "query": "what is the deadline for submitting expense receipts", "relevant": [{"path": "handbook-expenses.md", "must_contain": "30 days"}]}
+{"id": "q08", "kind": "paraphrase", "query": "spending limit on team lead company cards", "relevant": [{"path": "handbook-expenses.md", "must_contain": "3,000 euro"}]}
+{"id": "q09", "kind": "paraphrase", "query": "am I required to come into the office", "relevant": [{"path": "handbook-remote.md", "must_contain": "hybrid-first"}]}
+{"id": "q10", "kind": "keyword", "query": "home office stipend internet allowance", "relevant": [{"path": "handbook-remote.md", "must_contain": "1,200 euro"}]}
+{"id": "q11", "kind": "paraphrase", "query": "what time window must recurring meetings fall into", "relevant": [{"path": "handbook-remote.md", "must_contain": "11:00 to 16:00"}]}
+{"id": "q12", "kind": "paraphrase", "query": "my laptop was stolen, what do I do", "relevant": [{"path": "handbook-security.md", "must_contain": "24"}]}
+{"id": "q13", "kind": "keyword", "query": "hardware security keys single sign-on", "relevant": [{"path": "handbook-security.md", "must_contain": "single sign-on"}]}
+{"id": "q14", "kind": "paraphrase", "query": "I received a suspicious email, how do I report it", "relevant": [{"path": "handbook-security.md", "must_contain": "Report button"}]}
+{"id": "q15", "kind": "paraphrase", "query": "what happens during my first week at the company", "relevant": [{"path": "handbook-onboarding.md", "must_contain": "onboarding buddy"}]}
+{"id": "q16", "kind": "paraphrase", "query": "how long does probation last", "relevant": [{"path": "handbook-onboarding.md", "must_contain": "six months"}]}
+{"id": "q17", "kind": "keyword", "query": "30-60-90 plan with manager", "relevant": [{"path": "handbook-onboarding.md", "must_contain": "30-60-90"}]}
+{"id": "q18", "kind": "paraphrase", "query": "when are we not allowed to deploy", "relevant": [{"path": "eng-deploy.md", "must_contain": "Zephyr"}]}
+{"id": "q19", "kind": "keyword", "query": "Zephyr window hotfix approval", "relevant": [{"path": "eng-deploy.md", "must_contain": "VP approval"}]}
+{"id": "q20", "kind": "paraphrase", "query": "how quickly can we undo a bad release", "relevant": [{"path": "eng-deploy.md", "must_contain": "four minutes"}]}
+{"id": "q21", "kind": "keyword", "query": "canary rollout traffic percentage", "relevant": [{"path": "eng-deploy.md", "must_contain": "5%"}]}
+{"id": "q22", "kind": "paraphrase", "query": "which incidents wake someone up at night", "relevant": [{"path": "eng-incidents.md", "must_contain": "sev-1"}]}
+{"id": "q23", "kind": "paraphrase", "query": "first steps when production is on fire", "relevant": [{"path": "eng-incidents.md", "must_contain": "stabilization"}]}
+{"id": "q24", "kind": "keyword", "query": "blameless postmortem deadline days", "relevant": [{"path": "eng-incidents.md", "must_contain": "five working days"}]}
+{"id": "q25", "kind": "paraphrase", "query": "do we get extra pay for carrying the pager", "relevant": [{"path": "eng-oncall.md", "must_contain": "400 euros"}]}
+{"id": "q26", "kind": "keyword", "query": "on-call handoff Monday written summary", "relevant": [{"path": "eng-oncall.md", "must_contain": "10:00"}]}
+{"id": "q27", "kind": "paraphrase", "query": "what happens to alerts that keep paging for nothing", "relevant": [{"path": "eng-oncall.md", "must_contain": "tuned or deleted"}]}
+{"id": "q28", "kind": "paraphrase", "query": "which database is our source of truth", "relevant": [{"path": "eng-architecture.md", "must_contain": "system of record"}]}
+{"id": "q29", "kind": "keyword", "query": "Semaphore feature flag service", "relevant": [{"path": "eng-architecture.md", "must_contain": "Semaphore"}]}
+{"id": "q30", "kind": "paraphrase", "query": "is one service allowed to query another service's tables", "relevant": [{"path": "eng-architecture.md", "must_contain": "no cross-service"}]}
+{"id": "q31", "kind": "keyword", "query": "ClickHouse replication lag minutes", "relevant": [{"path": "eng-architecture.md", "must_contain": "fifteen-minute"}]}
+{"id": "q32", "kind": "paraphrase", "query": "what is our policy on flaky tests", "relevant": [{"path": "eng-testing.md", "must_contain": "quarantined"}]}
+{"id": "q33", "kind": "paraphrase", "query": "do we enforce a code coverage percentage", "relevant": [{"path": "eng-testing.md", "must_contain": "coverage number"}]}
+{"id": "q34", "kind": "keyword", "query": "golden dataset baseline change process", "relevant": [{"path": "eng-testing.md", "must_contain": "reviewed pull request"}]}
+{"id": "q35", "kind": "paraphrase", "query": "why do customers complain about our search", "relevant": [{"path": "product-orion.md", "must_contain": "literal-minded"}]}
+{"id": "q36", "kind": "keyword", "query": "Orion hybrid retrieval latency budget", "relevant": [{"path": "product-orion.md", "must_contain": "100 millisecond"}]}
+{"id": "q37", "kind": "paraphrase", "query": "morning summary of what changed while I was away", "relevant": [{"path": "product-atlas-brief.md", "must_contain": "Daily Brief"}]}
+{"id": "q38", "kind": "keyword", "query": "Daily Brief email delivery time", "relevant": [{"path": "product-atlas-brief.md", "must_contain": "7:30"}]}
+{"id": "q39", "kind": "paraphrase", "query": "how much does the Team plan cost per seat", "relevant": [{"path": "product-pricing.md", "must_contain": "29 euros"}]}
+{"id": "q40", "kind": "paraphrase", "query": "are we moving to usage based billing", "relevant": [{"path": "product-pricing.md", "must_contain": "usage-based"}]}
+{"id": "q41", "kind": "keyword", "query": "Enterprise tier SSO audit logs price", "relevant": [{"path": "product-pricing.md", "must_contain": "40,000"}]}
+{"id": "q42", "kind": "paraphrase", "query": "how many engineers are we hiring next quarter", "relevant": [{"path": "meeting-q3-planning.md", "must_contain": "six"}]}
+{"id": "q43", "kind": "keyword", "query": "Q3 infrastructure budget cap euros", "relevant": [{"path": "meeting-q3-planning.md", "must_contain": "210,000"}]}
+{"id": "q44", "kind": "paraphrase", "query": "which projects slipped to next quarter", "relevant": [{"path": "meeting-q3-planning.md", "must_contain": "Salesforce connector"}]}
+{"id": "q45", "kind": "paraphrase", "query": "what problems did the security audit find", "relevant": [{"path": "meeting-security-review.md", "must_contain": "webhook signing keys"}]}
+{"id": "q46", "kind": "paraphrase", "query": "which embedding model did the comparison recommend", "relevant": [{"path": "research-embeddings.md", "must_contain": "mid-size"}]}
+{"id": "q47", "kind": "paraphrase", "query": "what are the main reasons RAG answers go wrong", "relevant": [{"path": "research-rag-failures.md", "must_contain": "41%"}]}
+{"id": "q48", "kind": "keyword", "query": "maintenance_work_mem HNSW index build", "relevant": [{"path": "guide-postgres-tuning.md", "must_contain": "512MB"}]}
+{"id": "q49", "kind": "paraphrase", "query": "how fast should pull requests get a first review", "relevant": [{"path": "guide-code-review.md", "must_contain": "one business day"}]}
+{"id": "q50", "kind": "paraphrase", "query": "do candidates get paid for the take-home exercise", "relevant": [{"path": "guide-interviewing.md", "must_contain": "150 euro"}]}
+{"id": "q51", "kind": "keyword", "query": "WCAG accessibility level target", "relevant": [{"path": "notes-accessibility.md", "must_contain": "level AA"}]}
+{"id": "q52", "kind": "paraphrase", "query": "how long is customer data kept after cancellation", "relevant": [{"path": "notes-data-retention.md", "must_contain": "60 days"}]}
+{"id": "q53", "kind": "paraphrase", "query": "who are our biggest competitors", "relevant": [{"path": "notes-competitors.md", "must_contain": "Fieldstone"}]}
