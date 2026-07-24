@@ -66,3 +66,12 @@ class ProviderUnavailable(AtlasError):
     code = "provider_unavailable"
     status = 503
     title = "Provider unavailable"
+
+
+class StreamInProgress(AtlasError):
+    """One live answer stream per conversation (docs/12 §4.3): a second
+    POST while one streams is a client bug, not a queue request."""
+
+    code = "stream_in_progress"
+    status = 409
+    title = "Stream already in progress"

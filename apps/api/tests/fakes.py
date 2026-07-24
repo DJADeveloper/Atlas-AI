@@ -6,12 +6,22 @@ adapters prove in integration tests — workspace scoping included — so a
 use case green here and against Postgres is green for the same reasons.
 """
 
+import asyncio
 import hashlib
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field, replace
 from types import TracebackType
 from uuid import UUID
 
+from atlas.domain.ai import (
+    ChatEvent,
+    ChatRequest,
+    ChatResponse,
+    ProviderChatMessage,
+    ProviderError,
+    ProviderUnavailable,
+    Usage,
+)
 from atlas.domain.conversation.entities import Conversation, Message
 from atlas.domain.knowledge.entities import (
     Chunk,
@@ -23,6 +33,7 @@ from atlas.domain.knowledge.entities import (
 from atlas.domain.knowledge.files import FileStat
 from atlas.domain.knowledge.values import IngestionState
 from atlas.domain.memory.entities import Memory, MemoryKind
+from atlas.infrastructure.streams import BufferedEvent
 from atlas.shared.errors import NotFound
 
 
@@ -358,6 +369,12 @@ class FakeMessageRepository:
     async def count_for_conversation(self, workspace_id: UUID, conversation_id: UUID) -> int:
         return len(await self.list_for_conversation(workspace_id, conversation_id, limit=10**9))
 
+    async def latest_for_conversation(
+        self, workspace_id: UUID, conversation_id: UUID
+    ) -> Message | None:
+        matching = await self.list_for_conversation(workspace_id, conversation_id, limit=10**9)
+        return matching[-1] if matching else None
+
 
 @dataclass
 class FakeMemoryRepository:
@@ -535,3 +552,123 @@ class FakeEmbeddingProvider:
     async def embed_query(self, text: str) -> tuple[float, ...]:
         self.calls.append([text])
         return self._vector(text)
+
+
+def scripted_response(
+    model: str,
+    provider: str,
+    content: str = "An answer.",
+    *,
+    input_tokens: int = 3812,
+    output_tokens: int = 402,
+) -> ChatResponse:
+    return ChatResponse(
+        message=ProviderChatMessage(role="assistant", content=content),
+        usage=Usage(input_tokens=input_tokens, output_tokens=output_tokens),
+        stop_reason="end_turn",
+        model=model,
+        provider=provider,
+    )
+
+
+class ScriptedChatProvider:
+    """Scripted completions and streams; records every wire request so
+    tests can assert on the packed context. Stream scripts may contain
+    `asyncio.Event` gates (the stream waits until the test sets them —
+    how disconnect-detachment tests hold a stream open) and
+    `ProviderError` items (raised mid-stream at that position)."""
+
+    def __init__(self, name: str, *, is_local: bool) -> None:
+        self._name = name
+        self._is_local = is_local
+        self.requests: list[tuple[str, ChatRequest]] = []
+        self.responses: list[ChatResponse | ProviderError] = []
+        self.streams: list[list[ChatEvent | ProviderError | asyncio.Event] | ProviderError] = []
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def is_local(self) -> bool:
+        return self._is_local
+
+    async def complete(self, model: str, request: ChatRequest) -> ChatResponse:
+        self.requests.append((model, request))
+        if not self.responses:
+            raise ProviderUnavailable(f"{self._name}: no scripted response")
+        item = self.responses.pop(0)
+        if isinstance(item, ProviderError):
+            raise item
+        return item
+
+    def stream(self, model: str, request: ChatRequest) -> AsyncIterator[ChatEvent]:
+        self.requests.append((model, request))
+        script = self.streams.pop(0) if self.streams else ProviderUnavailable("no script")
+        return self._play(script)
+
+    async def _play(
+        self, script: list[ChatEvent | ProviderError | asyncio.Event] | ProviderError
+    ) -> AsyncIterator[ChatEvent]:
+        if isinstance(script, ProviderError):
+            raise script
+        for item in script:
+            if isinstance(item, asyncio.Event):
+                await item.wait()
+                continue
+            if isinstance(item, ProviderError):
+                raise item
+            yield item
+
+
+class MemoryStreamBuffer:
+    """`StreamBuffer` without Redis, for unit tests: same replay/tail
+    semantics, polling instead of blocking reads, no pings."""
+
+    def __init__(self) -> None:
+        self.events: dict[UUID, list[BufferedEvent]] = {}
+        self.finished: set[UUID] = set()
+        self.active: set[UUID] = set()
+        self.idempotency: dict[str, UUID] = {}
+
+    async def append(self, message_id: UUID, event: BufferedEvent) -> None:
+        self.events.setdefault(message_id, []).append(event)
+
+    async def finish(self, message_id: UUID) -> None:
+        self.finished.add(message_id)
+
+    async def exists(self, message_id: UUID) -> bool:
+        return message_id in self.events
+
+    async def read(
+        self, message_id: UUID, *, after: int = -1
+    ) -> AsyncIterator[BufferedEvent | None]:
+        position = 0
+        while True:
+            buffered = self.events.get(message_id, [])
+            while position < len(buffered):
+                event = buffered[position]
+                position += 1
+                if event.index <= after:
+                    continue
+                yield event
+                if event.terminal:
+                    return
+            if message_id in self.finished and position >= len(self.events.get(message_id, [])):
+                return
+            await asyncio.sleep(0.002)
+
+    async def try_claim_conversation(self, conversation_id: UUID) -> bool:
+        if conversation_id in self.active:
+            return False
+        self.active.add(conversation_id)
+        return True
+
+    async def release_conversation(self, conversation_id: UUID) -> None:
+        self.active.discard(conversation_id)
+
+    async def recall_message_for(self, idempotency_key: str) -> UUID | None:
+        return self.idempotency.get(idempotency_key)
+
+    async def remember_message_for(self, idempotency_key: str, message_id: UUID) -> None:
+        self.idempotency.setdefault(idempotency_key, message_id)

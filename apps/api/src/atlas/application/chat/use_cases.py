@@ -313,6 +313,7 @@ class StreamCompleted:
 @dataclass(frozen=True, slots=True)
 class StreamFailed:
     code: str
+    title: str
     status: int
     detail: str
     partial_text: str
@@ -373,6 +374,7 @@ class StreamAnswer(_ExchangeBase):
         except ProviderError as error:
             yield StreamFailed(
                 code=error.code,
+                title=error.title,
                 status=error.status,
                 detail=error.detail,
                 partial_text="".join(parts),
@@ -382,6 +384,7 @@ class StreamAnswer(_ExchangeBase):
         if usage is None:  # a stream that never reported usage is broken
             yield StreamFailed(
                 code="malformed_provider_response",
+                title="Malformed provider response",
                 status=502,
                 detail="stream ended without usage accounting",
                 partial_text="".join(parts),

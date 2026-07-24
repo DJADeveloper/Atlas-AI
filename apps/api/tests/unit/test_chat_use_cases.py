@@ -4,7 +4,7 @@ persistence with provider-exact accounting, degraded visibility, the
 background folds (docs/12 §4.3, docs/20 §9, docs/22 §2)."""
 
 import random
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -31,10 +31,7 @@ from atlas.application.chat.prompts import SUMMARIZE_PROMPT
 from atlas.application.memory import RememberFact
 from atlas.domain.ai import (
     ChatEvent,
-    ChatRequest,
-    ChatResponse,
     LLMProvider,
-    ProviderChatMessage,
     ProviderError,
     ProviderUnavailable,
     Usage,
@@ -42,71 +39,18 @@ from atlas.domain.ai import (
 from atlas.domain.conversation.entities import Conversation, Message
 from atlas.shared.errors import NotFound
 from atlas.shared.ids import uuid7
-from tests.fakes import FakeDispatcher, FakeState, FakeUnitOfWork
+from tests.fakes import (
+    FakeDispatcher,
+    FakeState,
+    FakeUnitOfWork,
+    ScriptedChatProvider,
+)
+from tests.fakes import (
+    scripted_response as _response,
+)
 
 SONNET = "claude-sonnet-5"
 HAIKU = "claude-haiku-4-5-20251001"
-
-
-def _response(
-    model: str,
-    provider: str,
-    content: str = "An answer.",
-    *,
-    input_tokens: int = 3812,
-    output_tokens: int = 402,
-) -> ChatResponse:
-    return ChatResponse(
-        message=ProviderChatMessage(role="assistant", content=content),
-        usage=Usage(input_tokens=input_tokens, output_tokens=output_tokens),
-        stop_reason="end_turn",
-        model=model,
-        provider=provider,
-    )
-
-
-class ScriptedChatProvider:
-    """Scripted completions and streams; records every wire request so
-    tests can assert on the packed context."""
-
-    def __init__(self, name: str, *, is_local: bool) -> None:
-        self._name = name
-        self._is_local = is_local
-        self.requests: list[tuple[str, ChatRequest]] = []
-        self.responses: list[ChatResponse | ProviderError] = []
-        self.streams: list[list[ChatEvent | ProviderError] | ProviderError] = []
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    @property
-    def is_local(self) -> bool:
-        return self._is_local
-
-    async def complete(self, model: str, request: ChatRequest) -> ChatResponse:
-        self.requests.append((model, request))
-        if not self.responses:
-            raise ProviderUnavailable(f"{self._name}: no scripted response")
-        item = self.responses.pop(0)
-        if isinstance(item, ProviderError):
-            raise item
-        return item
-
-    def stream(self, model: str, request: ChatRequest) -> AsyncIterator[ChatEvent]:
-        self.requests.append((model, request))
-        script = self.streams.pop(0) if self.streams else ProviderUnavailable("no script")
-        return self._play(script)
-
-    async def _play(
-        self, script: list[ChatEvent | ProviderError] | ProviderError
-    ) -> AsyncIterator[ChatEvent]:
-        if isinstance(script, ProviderError):
-            raise script
-        for item in script:
-            if isinstance(item, ProviderError):
-                raise item
-            yield item
 
 
 def _clock(values: list[float]) -> Callable[[], float]:

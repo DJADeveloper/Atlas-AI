@@ -445,6 +445,18 @@ class SqlMessageRepository:
         stmt = select(func.count()).select_from(scoped.subquery())
         return (await self._session.execute(stmt)).scalar_one()
 
+    async def latest_for_conversation(
+        self, workspace_id: UUID, conversation_id: UUID
+    ) -> Message | None:
+        stmt = (
+            self._scoped(workspace_id)
+            .where(MessageRow.conversation_id == conversation_id)
+            .order_by(MessageRow.id.desc())  # UUIDv7 max = newest
+            .limit(1)
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return message_from_row(row) if row is not None else None
+
 
 class SqlMemoryRepository:
     def __init__(self, session: AsyncSession) -> None:

@@ -27,3 +27,9 @@ class MessageRepository(Protocol):
         ...
 
     async def count_for_conversation(self, workspace_id: UUID, conversation_id: UUID) -> int: ...
+
+    async def latest_for_conversation(
+        self, workspace_id: UUID, conversation_id: UUID
+    ) -> Message | None:
+        """Newest message (UUIDv7 max), for last_message_at summaries."""
+        ...

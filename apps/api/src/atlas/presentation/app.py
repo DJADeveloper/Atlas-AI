@@ -21,8 +21,10 @@ from atlas.observability.logging import configure_logging
 from atlas.presentation.composition import build_container, close_container
 from atlas.presentation.errors import register_exception_handlers
 from atlas.presentation.middleware import TraceIdMiddleware
+from atlas.presentation.routes.conversations import router as conversations_router
 from atlas.presentation.routes.documents import router as documents_router
 from atlas.presentation.routes.jobs import router as jobs_router
+from atlas.presentation.routes.memories import router as memories_router
 from atlas.presentation.routes.search import router as search_router
 from atlas.presentation.routes.sources import router as sources_router
 from atlas.presentation.routes.system import router as system_router
@@ -33,11 +35,19 @@ from atlas.shared.version import get_version
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     container = build_container(app.state.settings)
     app.state.container = container
+    # Detached SSE pumps (docs/12 §4.3.5) outlive their HTTP requests;
+    # the registry lets shutdown reap them instead of leaking tasks.
+    pump_tasks: set[asyncio.Task[None]] = set()
+    app.state.pump_tasks = pump_tasks
     if container.settings.run_migrations_on_startup:
         await asyncio.to_thread(run_migrations_sync, container.settings.database_url)
     try:
         yield
     finally:
+        for task in pump_tasks:
+            task.cancel()
+        if pump_tasks:
+            await asyncio.gather(*pump_tasks, return_exceptions=True)
         await close_container(container)
 
 
@@ -64,4 +74,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(jobs_router)
     app.include_router(search_router)
     app.include_router(documents_router)
+    app.include_router(conversations_router)
+    app.include_router(memories_router)
     return app
