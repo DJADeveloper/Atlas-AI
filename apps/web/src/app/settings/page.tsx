@@ -25,15 +25,24 @@ export default function SettingsPage() {
     void load();
   }, []);
 
-  const save = useCallback(async (next: Profile) => {
-    setSaved(false);
-    const { data } = await api.PATCH("/api/v1/settings", { body: { profile: next } });
-    if (data) {
-      setProfile(data.profile);
-      setActiveProfile(data.active_profile);
-      setSaved(true);
-    }
-  }, []);
+  const save = useCallback(
+    async (next: Profile) => {
+      const previous = profile;
+      // Optimistic: the radio must reflect the choice at click time, not
+      // after the PATCH round-trip — revert if the save fails.
+      setProfile(next);
+      setSaved(false);
+      const { data } = await api.PATCH("/api/v1/settings", { body: { profile: next } });
+      if (data) {
+        setProfile(data.profile);
+        setActiveProfile(data.active_profile);
+        setSaved(true);
+      } else {
+        setProfile(previous);
+      }
+    },
+    [profile],
+  );
 
   return (
     <section data-testid="settings-screen" className="max-w-lg">

@@ -10,6 +10,10 @@
  *    source viewer opens with the cited chunk highlighted.
  * 5. Dark and light themes both render the chat screen (visual smoke;
  *    pixel-diff baselines join when a human blesses them).
+ *
+ * Ordering: declaration order with workers=1 (not describe.serial —
+ * serial retries re-run the whole chain against already-mutated backend
+ * state, so a late flake would cascade into an abstention failure).
  */
 
 import { expect, test } from "@playwright/test";
@@ -20,7 +24,7 @@ const API = "http://localhost:8000";
 // apps/web is `"type": "module"` — no __dirname in ESM scope.
 const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/notes");
 
-test.describe.serial("Atlas UI", () => {
+test.describe("Atlas UI", () => {
   test("abstention renders a distinct not-found state", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("chat-input").fill("What is the quarterly synergy cadence?");
@@ -32,6 +36,9 @@ test.describe.serial("Atlas UI", () => {
   });
 
   test("profile toggle round-trips through settings and /health", async ({ page, request }) => {
+    // The profile persists in Postgres — normalize so a retry (or a
+    // re-run against a warm database) starts from the same state.
+    await request.patch(`${API}/api/v1/settings`, { data: { profile: "hybrid" } });
     await page.goto("/settings");
     await page.getByTestId("profile-local-only").check();
     await expect(page.getByTestId("settings-saved")).toBeVisible();
