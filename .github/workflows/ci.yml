@@ -89,6 +89,68 @@ jobs:
       - run: uv sync --frozen --project apps/api
       - run: scripts/ci/test-integration.sh
 
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: atlas
+          POSTGRES_PASSWORD: atlas
+          POSTGRES_DB: atlas
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U atlas" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      ATLAS_DATABASE_URL: postgresql+asyncpg://atlas:atlas@localhost:5432/atlas
+      ATLAS_REDIS_URL: redis://localhost:6379/0
+      # Deterministic providers (M09): the whole stack runs with no
+      # Ollama and no API key.
+      ATLAS_CHAT_PROVIDER: echo
+      ATLAS_EMBEDDING_PROVIDER: hash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - run: corepack enable
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: uv sync --frozen --project apps/api
+      - run: pnpm install --frozen-lockfile
+      - name: Migrate
+        run: cd apps/api && uv run alembic upgrade head
+      - name: Start API and worker (echo/hash providers)
+        run: |
+          cd apps/api
+          nohup uv run uvicorn --factory atlas.presentation.app:create_app \
+            --port 8000 > /tmp/api.log 2>&1 &
+          nohup uv run celery -A atlas.infrastructure.jobs.worker worker \
+            --loglevel INFO > /tmp/worker.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:8000/health && break
+            sleep 1
+          done
+      - run: pnpm --filter @atlas/web build
+      - run: pnpm --filter @atlas/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @atlas/web exec playwright test
+      - name: Backend logs on failure
+        if: failure()
+        run: tail -100 /tmp/api.log /tmp/worker.log
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/test-results/
+
   compose-validate:
     runs-on: ubuntu-latest
     steps:

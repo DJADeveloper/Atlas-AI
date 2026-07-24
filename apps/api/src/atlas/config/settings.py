@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # raise it if golden-set recall misses on laptop-class hardware.
     hnsw_ef_search: int = 40
 
+    # The web app's origin (M09): the browser calls the API cross-
+    # origin (3000 -> 8000) in dev; the desktop shell (M14) collapses
+    # this to same-origin.
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+
     # Test/demo provider seams (M09): "echo" answers with a canned
     # cited stream, "hash" embeds deterministically - the full stack
     # runs on CI with no Ollama and no API key. Production values are
