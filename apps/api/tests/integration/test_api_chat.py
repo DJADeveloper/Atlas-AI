@@ -8,6 +8,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from uuid import UUID
 
@@ -258,8 +259,14 @@ class TestSseLifecycle:
 
     async def test_disconnect_detaches_generation_and_persists(self, api: ChatApi) -> None:
         """M07 acceptance + §4.3.5: the client walks away mid-stream;
-        the response terminates, generation finishes in the background
-        within the 2 s budget, and the full answer is persisted."""
+        the tail dies, generation finishes in the background within the
+        2 s budget, the full answer is persisted, and the buffered
+        stream remains resumable.
+
+        httpx's ASGITransport buffers streaming bodies until the app
+        completes, so the walk-away is expressed by cancelling the
+        request task — the same CancelledError a dropped socket
+        delivers to the response generator."""
         conversation_id = await api.create_conversation()
         gate = asyncio.Event()
         usage = Usage(input_tokens=10, output_tokens=5)
@@ -272,18 +279,31 @@ class TestSseLifecycle:
             ]
         ]
 
-        async with api.http.stream(
-            "POST",
-            f"/api/v1/conversations/{conversation_id}/messages",
-            json={"content": "hi"},
-            headers={"Idempotency-Key": "k-detach"},
-        ) as response:
-            assert response.status_code == 200
-            raw = ""
-            async for chunk in response.aiter_text():
-                raw += chunk
-                if "content_delta" in raw:
-                    break  # disconnect mid-generation
+        request = asyncio.create_task(
+            api.http.post(
+                f"/api/v1/conversations/{conversation_id}/messages",
+                json={"content": "hi"},
+                headers={"Idempotency-Key": "k-detach"},
+            )
+        )
+        # Wait until generation demonstrably started (message_start +
+        # first delta in the Redis buffer), then hang up.
+        message_id = None
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            message_id = await api.container.stream_buffer.recall_message_for(
+                f"{conversation_id}:k-detach"
+            )
+            if (
+                message_id is not None
+                and await api.container.redis.xlen(f"atlas:chat:stream:{message_id}") >= 2
+            ):
+                break
+            await asyncio.sleep(0.02)
+        assert message_id is not None, "stream never started"
+        request.cancel()
+        with suppress(asyncio.CancelledError):
+            await request
 
         gate.set()  # the provider produces the rest after the client left
         deadline = time.monotonic() + 2.0
@@ -292,9 +312,21 @@ class TestSseLifecycle:
             items = messages.json()["items"]
             if [item["role"] for item in items] == ["user", "assistant"]:
                 assert items[1]["content"] == "Hello"
-                return
+                break
             await asyncio.sleep(0.05)
-        pytest.fail("assistant answer was not persisted within 2s of disconnect")
+        else:
+            pytest.fail("assistant answer was not persisted within 2s of disconnect")
+
+        # The abandoned stream is still resumable from the buffer.
+        raw = ""
+        async with api.http.stream("GET", f"/api/v1/messages/{message_id}/stream") as response:
+            assert response.status_code == 200
+            async for chunk in response.aiter_text():
+                raw += chunk
+        replayed = _parse_sse(raw)
+        assert [e.event for e in replayed][-1] == "message_end"
+        deltas = [e.data["delta"] for e in replayed if e.event == "content_delta"]
+        assert "".join(str(d) for d in deltas) == "Hello"
 
 
 class TestMemoriesCrud:

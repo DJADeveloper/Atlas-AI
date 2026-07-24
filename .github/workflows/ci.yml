@@ -73,6 +73,9 @@ jobs:
 
   test-integration:
     runs-on: ubuntu-latest
+    # A hung SSE tail must fail the job, not burn a runner for the
+    # 6-hour GitHub default (learned from run 14).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
