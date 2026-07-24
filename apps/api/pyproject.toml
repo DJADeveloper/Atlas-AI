@@ -77,8 +77,9 @@ max-args = 6
 [tool.ruff.lint.per-file-ignores]
 # Test code idioms, configured here rather than as inline suppressions:
 # S101 - pytest uses bare assert; PLR2004 - literal expectations are the
-# point; S311 - seeded random builds deterministic fixtures, not secrets.
-"tests/**" = ["S101", "PLR2004", "ASYNC240", "S311"]
+# point; S311 - seeded random builds deterministic fixtures, not secrets;
+# PLR0913 - harness seed helpers legitimately take many knobs.
+"tests/**" = ["S101", "PLR2004", "ASYNC240", "S311", "PLR0913"]
 # Benchmark corpora are seeded-random fixtures too (S311, same reasoning).
 "scripts/**" = ["S311"]
 

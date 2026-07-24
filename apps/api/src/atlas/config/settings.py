@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 32
     embedding_concurrency: int = 2
 
+    # Retrieval (M06). ef_search is the recall/latency knob (docs/41 §8);
+    # raise it if golden-set recall misses on laptop-class hardware.
+    hnsw_ef_search: int = 40
+
     feature_flags: dict[str, bool] = Field(default_factory=dict)
 
     @property
