@@ -1,7 +1,8 @@
 import { expect, test } from "vitest";
 
-import { PACKAGE_NAME } from "./index.js";
+import { SseParser, createAtlasClient } from "./index";
 
-test("workspace package is wired into the test pipeline", () => {
-  expect(PACKAGE_NAME).toBe("@atlas/api-client");
+test("package exposes the generated client and SSE module", () => {
+  expect(typeof createAtlasClient).toBe("function");
+  expect(new SseParser().feed("")).toEqual([]);
 });

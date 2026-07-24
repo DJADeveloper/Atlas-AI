@@ -1,7 +1,15 @@
 /**
- * Placeholder module for @atlas/api-client.
- *
- * The generated client (from the OpenAPI contract) lands at M09; until then this package exists so the pnpm workspace graph,
- * typecheck, and test pipeline exercise every package from M01 onward.
+ * @atlas/api-client — the generated Atlas API client (ADR-0001) plus
+ * the one SSE consumption module every app shares (docs/12 §4.3).
  */
-export const PACKAGE_NAME = "@atlas/api-client";
+
+export { createAtlasClient } from "./client";
+export type { AtlasClient, AtlasClientOptions, paths } from "./client";
+export { AtlasApiError, SseParser, streamChatMessage } from "./sse";
+export type {
+  ChatSseEvent,
+  ChatSseEventName,
+  ProblemDetails,
+  StreamOptions,
+  StreamOutcome,
+} from "./sse";

@@ -3,13 +3,19 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Placeholder until M09 — OpenAPI-generated TypeScript client.",
+  "description": "Atlas API client generated from the OpenAPI contract (ADR-0001) + shared SSE consumption.",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "gen": "uv run --project ../../apps/api python ../../apps/api/scripts/export_openapi.py --output openapi.json && openapi-typescript openapi.json -o src/schema.d.ts"
   },
   "devDependencies": {
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.6.3",
     "vitest": "^3.2.4"
-  }
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0"
+  },
+  "main": "src/index.ts"
 }

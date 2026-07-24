@@ -70,6 +70,10 @@ jobs:
       - run: uv sync --frozen --project apps/api
       - run: pnpm install --frozen-lockfile
       - run: scripts/ci/test.sh
+      - name: Generated client drift guard (ADR-0001)
+        run: |
+          pnpm gen
+          git diff --exit-code packages/api-client/openapi.json packages/api-client/src/schema.d.ts
 
   test-integration:
     runs-on: ubuntu-latest
