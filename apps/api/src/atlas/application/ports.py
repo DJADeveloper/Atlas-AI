@@ -23,6 +23,7 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
+from atlas.domain.conversation.ports import ConversationRepository, MessageRepository
 from atlas.domain.knowledge.ports import (
     ChunkRepository,
     DocumentRepository,
@@ -30,6 +31,7 @@ from atlas.domain.knowledge.ports import (
     IngestionJobRepository,
     SourceRepository,
 )
+from atlas.domain.memory.ports import MemoryRepository
 
 
 class IngestionDispatcher(Protocol):
@@ -136,6 +138,12 @@ class UnitOfWork(Protocol):
     def chunks(self) -> ChunkRepository: ...
     @property
     def ingestion_jobs(self) -> IngestionJobRepository: ...
+    @property
+    def conversations(self) -> ConversationRepository: ...
+    @property
+    def messages(self) -> MessageRepository: ...
+    @property
+    def memories(self) -> MemoryRepository: ...
 
     async def __aenter__(self) -> "UnitOfWork": ...
     async def __aexit__(

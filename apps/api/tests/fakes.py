@@ -12,6 +12,7 @@ from dataclasses import dataclass, field, replace
 from types import TracebackType
 from uuid import UUID
 
+from atlas.domain.conversation.entities import Conversation, Message
 from atlas.domain.knowledge.entities import (
     Chunk,
     Document,
@@ -21,6 +22,7 @@ from atlas.domain.knowledge.entities import (
 )
 from atlas.domain.knowledge.files import FileStat
 from atlas.domain.knowledge.values import IngestionState
+from atlas.domain.memory.entities import Memory, MemoryKind
 from atlas.shared.errors import NotFound
 
 
@@ -34,6 +36,9 @@ class FakeState:
     versions: dict[UUID, DocumentVersion] = field(default_factory=dict)
     chunks: dict[UUID, Chunk] = field(default_factory=dict)
     jobs: dict[UUID, IngestionJob] = field(default_factory=dict)
+    conversations: dict[UUID, Conversation] = field(default_factory=dict)
+    messages: dict[UUID, Message] = field(default_factory=dict)
+    memories: dict[UUID, Memory] = field(default_factory=dict)
 
     def workspace_of_source(self, source_id: UUID) -> UUID | None:
         source = self.sources.get(source_id)
@@ -275,6 +280,126 @@ class FakeIngestionJobRepository:
         return sorted(matching, key=lambda j: j.created_at, reverse=True)[:limit]
 
 
+@dataclass
+class FakeConversationRepository:
+    state: FakeState
+    pending: dict[UUID, Conversation] = field(default_factory=dict)
+
+    def _merged(self) -> dict[UUID, Conversation]:
+        return {**self.state.conversations, **self.pending}
+
+    async def add(self, conversation: Conversation) -> None:
+        self.pending[conversation.id] = replace(conversation)
+
+    async def save(self, conversation: Conversation) -> None:
+        stored = self._merged().get(conversation.id)
+        if stored is None or stored.workspace_id != conversation.workspace_id:
+            raise NotFound(f"conversation {conversation.id} not found in its workspace")
+        self.pending[conversation.id] = replace(conversation)
+
+    def _visible(self, workspace_id: UUID) -> list[Conversation]:
+        return [
+            c
+            for c in self._merged().values()
+            if c.workspace_id == workspace_id and not c.is_deleted
+        ]
+
+    async def get(self, workspace_id: UUID, conversation_id: UUID) -> Conversation | None:
+        return next(
+            (replace(c) for c in self._visible(workspace_id) if c.id == conversation_id), None
+        )
+
+    async def list_recent(self, workspace_id: UUID, *, limit: int = 50) -> list[Conversation]:
+        ordered = sorted(
+            (replace(c) for c in self._visible(workspace_id)),
+            key=lambda c: c.updated_at,
+            reverse=True,
+        )
+        return ordered[:limit]
+
+
+@dataclass
+class FakeMessageRepository:
+    state: FakeState
+    conversations: FakeConversationRepository
+    pending: dict[UUID, Message] = field(default_factory=dict)
+
+    def _merged(self) -> dict[UUID, Message]:
+        return {**self.state.messages, **self.pending}
+
+    def _workspace_of(self, conversation_id: UUID) -> UUID | None:
+        conversation = {**self.state.conversations, **self.conversations.pending}.get(
+            conversation_id
+        )
+        return conversation.workspace_id if conversation else None
+
+    async def add(self, message: Message) -> None:
+        self.pending[message.id] = message  # frozen: safe to share
+
+    def _visible(self, workspace_id: UUID) -> list[Message]:
+        return [
+            m
+            for m in self._merged().values()
+            if self._workspace_of(m.conversation_id) == workspace_id
+        ]
+
+    async def get(self, workspace_id: UUID, message_id: UUID) -> Message | None:
+        return next((m for m in self._visible(workspace_id) if m.id == message_id), None)
+
+    async def list_for_conversation(
+        self, workspace_id: UUID, conversation_id: UUID, *, limit: int = 500
+    ) -> list[Message]:
+        matching = sorted(
+            (m for m in self._visible(workspace_id) if m.conversation_id == conversation_id),
+            key=lambda m: m.id.int,  # UUIDv7 order = chronological
+        )
+        return matching[:limit]
+
+    async def count_for_conversation(self, workspace_id: UUID, conversation_id: UUID) -> int:
+        return len(await self.list_for_conversation(workspace_id, conversation_id, limit=10**9))
+
+
+@dataclass
+class FakeMemoryRepository:
+    state: FakeState
+    pending: dict[UUID, Memory] = field(default_factory=dict)
+
+    def _merged(self) -> dict[UUID, Memory]:
+        return {**self.state.memories, **self.pending}
+
+    async def add(self, memory: Memory) -> None:
+        self.pending[memory.id] = replace(memory)
+
+    async def save(self, memory: Memory) -> None:
+        stored = self._merged().get(memory.id)
+        if stored is None or stored.workspace_id != memory.workspace_id:
+            raise NotFound(f"memory {memory.id} not found in its workspace")
+        self.pending[memory.id] = replace(memory)
+
+    async def get(self, workspace_id: UUID, memory_id: UUID) -> Memory | None:
+        return next(
+            (
+                replace(m)
+                for m in self._merged().values()
+                if m.workspace_id == workspace_id and m.id == memory_id and not m.is_deleted
+            ),
+            None,
+        )
+
+    async def list_active(
+        self, workspace_id: UUID, *, kind: MemoryKind | None = None, limit: int = 200
+    ) -> list[Memory]:
+        live = [
+            replace(m)
+            for m in self._merged().values()
+            if m.workspace_id == workspace_id
+            and not m.is_deleted
+            and not m.is_expired()
+            and (kind is None or m.kind == kind)
+        ]
+        return sorted(live, key=lambda m: m.created_at, reverse=True)[:limit]
+
+
 class FakeUnitOfWork:
     """Commit merges pending into shared state; exit without commit discards."""
 
@@ -283,6 +408,9 @@ class FakeUnitOfWork:
     document_versions: FakeDocumentVersionRepository
     chunks: FakeChunkRepository
     ingestion_jobs: FakeIngestionJobRepository
+    conversations: FakeConversationRepository
+    messages: FakeMessageRepository
+    memories: FakeMemoryRepository
 
     def __init__(self, state: FakeState) -> None:
         self._state = state
@@ -293,6 +421,9 @@ class FakeUnitOfWork:
         self.document_versions = FakeDocumentVersionRepository(self._state, self.documents)
         self.chunks = FakeChunkRepository(self._state, self.document_versions)
         self.ingestion_jobs = FakeIngestionJobRepository(self._state)
+        self.conversations = FakeConversationRepository(self._state)
+        self.messages = FakeMessageRepository(self._state, self.conversations)
+        self.memories = FakeMemoryRepository(self._state)
         return self
 
     async def __aexit__(
@@ -311,6 +442,9 @@ class FakeUnitOfWork:
         for chunk_id in self.chunks.deleted:
             self._state.chunks.pop(chunk_id, None)
         self._state.jobs.update(self.ingestion_jobs.pending)
+        self._state.conversations.update(self.conversations.pending)
+        self._state.messages.update(self.messages.pending)
+        self._state.memories.update(self.memories.pending)
 
     async def rollback(self) -> None:
         self.sources.pending.clear()
@@ -319,6 +453,9 @@ class FakeUnitOfWork:
         self.chunks.pending.clear()
         self.chunks.deleted.clear()
         self.ingestion_jobs.pending.clear()
+        self.conversations.pending.clear()
+        self.messages.pending.clear()
+        self.memories.pending.clear()
 
 
 class FakeFileStore:

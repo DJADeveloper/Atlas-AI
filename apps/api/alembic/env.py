@@ -26,7 +26,11 @@ if _env_url:
 target_metadata = Base.metadata
 
 _MIGRATION_OWNED_TABLES = {"audit_events", "audit_events_default"}
-_MIGRATION_OWNED_INDEXES = {"ingestion_jobs_active_dedupe_idx"}
+_MIGRATION_OWNED_INDEXES = {
+    "ingestion_jobs_active_dedupe_idx",
+    "conversations_ws_idx",
+    "memories_scope_idx",
+}
 
 
 def include_object(

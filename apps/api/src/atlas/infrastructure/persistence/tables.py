@@ -9,6 +9,7 @@ and excluded from autogenerate comparison in `alembic/env.py`.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, ClassVar
 from uuid import UUID
 
@@ -18,10 +19,12 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Computed,
+    Float,
     ForeignKey,
     Index,
     Integer,
     MetaData,
+    Numeric,
     Text,
     UniqueConstraint,
 )
@@ -30,12 +33,14 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMP, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from atlas.domain.conversation.entities import MESSAGE_ROLES
 from atlas.domain.knowledge.values import (
     INGESTION_STAGES,
     INGESTION_STATES,
     SOURCE_KINDS,
     SOURCE_STATUSES,
 )
+from atlas.domain.memory.entities import MEMORY_KINDS
 from atlas.shared.clock import utc_now
 
 EMBEDDING_DIM = 768  # deployment-profile constant (spine §7)
@@ -231,3 +236,65 @@ class IngestionJobRow(_Stamped, Base):
     trace_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class ConversationRow(_Stamped, Base):
+    """The partial recency index conversations_ws_idx (workspace_id,
+    updated_at DESC WHERE deleted_at IS NULL) is migration-owned DDL
+    (0004, same reasoning as 0002's partial index) — excluded from
+    autogenerate in env.py."""
+
+    __tablename__ = "conversations"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"))
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class MessageRow(_CreatedOnly, Base):
+    """Immutable; UUIDv7 PK order = chronological order (docs/11 §2.4).
+    prompt_version is text until the M08 registry adds prompt_versions."""
+
+    __tablename__ = "messages"
+    __table_args__ = (
+        CheckConstraint(_in_clause("role", MESSAGE_ROLES), name="role_allowed"),
+        Index("messages_conversation_idx", "conversation_id", "id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE")
+    )
+    role: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text)
+    abstained: Mapped[bool] = mapped_column(Boolean, server_default=sql_text("false"))
+    model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MemoryRow(_Stamped, Base):
+    """Memory v1 (docs/11 §2.5); project_id joins at M13. Provenance is
+    SET NULL so deleting a conversation never strands its memories."""
+
+    __tablename__ = "memories"
+    # memories_scope_idx (partial, WHERE deleted_at IS NULL) is
+    # migration-owned DDL (0004), excluded from autogenerate in env.py.
+    __table_args__ = (CheckConstraint(_in_clause("kind", MEMORY_KINDS), name="kind_allowed"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"))
+    kind: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text)
+    source_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)

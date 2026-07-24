@@ -10,8 +10,15 @@ mismatch impossible in practice, and the narrowing functions make it a
 loud domain error rather than a silent lie if the two ever drift.
 """
 
+from decimal import Decimal
 from typing import Any
 
+from atlas.domain.conversation.entities import (
+    MESSAGE_ROLES,
+    Conversation,
+    Message,
+    MessageRole,
+)
 from atlas.domain.knowledge.entities import (
     Chunk,
     Document,
@@ -30,11 +37,15 @@ from atlas.domain.knowledge.values import (
     SourceKind,
     SourceStatus,
 )
+from atlas.domain.memory.entities import MEMORY_KINDS, Memory, MemoryKind
 from atlas.infrastructure.persistence.tables import (
     ChunkRow,
+    ConversationRow,
     DocumentRow,
     DocumentVersionRow,
     IngestionJobRow,
+    MemoryRow,
+    MessageRow,
     SourceRow,
 )
 from atlas.shared.errors import ValidationFailed
@@ -241,4 +252,120 @@ def job_from_row(row: IngestionJobRow) -> IngestionJob:
         started_at=row.started_at,
         finished_at=row.finished_at,
         created_at=row.created_at,
+    )
+
+
+def _as_role(value: str) -> MessageRole:
+    if value not in MESSAGE_ROLES:
+        raise ValidationFailed(f"unknown message role in database: {value!r}")
+    return value
+
+
+def _as_memory_kind(value: str) -> MemoryKind:
+    if value not in MEMORY_KINDS:
+        raise ValidationFailed(f"unknown memory kind in database: {value!r}")
+    return value
+
+
+def conversation_to_row(entity: Conversation) -> ConversationRow:
+    return ConversationRow(
+        id=entity.id,
+        workspace_id=entity.workspace_id,
+        title=entity.title,
+        deleted_at=entity.deleted_at,
+        created_at=entity.created_at,
+        updated_at=entity.updated_at,
+    )
+
+
+def apply_conversation(row: ConversationRow, entity: Conversation) -> None:
+    row.title = entity.title
+    row.deleted_at = entity.deleted_at
+    row.updated_at = entity.updated_at
+
+
+def conversation_from_row(row: ConversationRow) -> Conversation:
+    return Conversation(
+        id=row.id,
+        workspace_id=row.workspace_id,
+        title=row.title,
+        deleted_at=row.deleted_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def message_to_row(entity: Message) -> MessageRow:
+    return MessageRow(
+        id=entity.id,
+        conversation_id=entity.conversation_id,
+        role=entity.role,
+        content=entity.content,
+        abstained=entity.abstained,
+        model=entity.model,
+        provider=entity.provider,
+        prompt_version=entity.prompt_version,
+        input_tokens=entity.input_tokens,
+        output_tokens=entity.output_tokens,
+        cost_usd=None if entity.cost_usd is None else Decimal(str(entity.cost_usd)),
+        latency_ms=entity.latency_ms,
+        trace_id=entity.trace_id,
+        created_at=entity.created_at,
+    )
+
+
+def message_from_row(row: MessageRow) -> Message:
+    return Message(
+        id=row.id,
+        conversation_id=row.conversation_id,
+        role=_as_role(row.role),
+        content=row.content,
+        abstained=row.abstained,
+        model=row.model,
+        provider=row.provider,
+        prompt_version=row.prompt_version,
+        input_tokens=row.input_tokens,
+        output_tokens=row.output_tokens,
+        cost_usd=None if row.cost_usd is None else float(row.cost_usd),
+        latency_ms=row.latency_ms,
+        trace_id=row.trace_id,
+        created_at=row.created_at,
+    )
+
+
+def memory_to_row(entity: Memory) -> MemoryRow:
+    return MemoryRow(
+        id=entity.id,
+        workspace_id=entity.workspace_id,
+        kind=entity.kind,
+        content=entity.content,
+        source_message_id=entity.source_message_id,
+        confidence=entity.confidence,
+        expires_at=entity.expires_at,
+        deleted_at=entity.deleted_at,
+        created_at=entity.created_at,
+        updated_at=entity.updated_at,
+    )
+
+
+def apply_memory(row: MemoryRow, entity: Memory) -> None:
+    row.content = entity.content
+    row.confidence = entity.confidence
+    row.expires_at = entity.expires_at
+    row.deleted_at = entity.deleted_at
+    row.updated_at = entity.updated_at
+
+
+def memory_from_row(row: MemoryRow) -> Memory:
+    return Memory(
+        id=row.id,
+        workspace_id=row.workspace_id,
+        kind=_as_memory_kind(row.kind),
+        content=row.content,
+        source_message_id=row.source_message_id,
+        confidence=row.confidence,
+        expires_at=row.expires_at,
+        deleted_at=row.deleted_at,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )

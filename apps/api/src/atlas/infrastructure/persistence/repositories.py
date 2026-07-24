@@ -17,11 +17,12 @@ transaction. Commit remains the UoW's decision.
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import CursorResult, Select, delete, func, select, update
+from sqlalchemy import CursorResult, Select, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from atlas.domain.conversation.entities import Conversation, Message
 from atlas.domain.knowledge.entities import (
     Chunk,
     Document,
@@ -30,16 +31,25 @@ from atlas.domain.knowledge.entities import (
     Source,
 )
 from atlas.domain.knowledge.values import IngestionState
+from atlas.domain.memory.entities import Memory, MemoryKind
 from atlas.infrastructure.persistence.mappers import (
+    apply_conversation,
     apply_document,
     apply_job,
+    apply_memory,
     apply_source,
     chunk_from_row,
     chunk_to_row,
+    conversation_from_row,
+    conversation_to_row,
     document_from_row,
     document_to_row,
     job_from_row,
     job_to_row,
+    memory_from_row,
+    memory_to_row,
+    message_from_row,
+    message_to_row,
     source_from_row,
     source_to_row,
     vector_from_row,
@@ -48,9 +58,12 @@ from atlas.infrastructure.persistence.mappers import (
 )
 from atlas.infrastructure.persistence.tables import (
     ChunkRow,
+    ConversationRow,
     DocumentRow,
     DocumentVersionRow,
     IngestionJobRow,
+    MemoryRow,
+    MessageRow,
     SourceRow,
 )
 from atlas.shared.errors import Conflict, NotFound, ValidationFailed
@@ -361,3 +374,114 @@ class SqlIngestionJobRepository:
         stmt = stmt.order_by(IngestionJobRow.created_at.desc()).limit(limit)
         rows = (await self._session.execute(stmt)).scalars().all()
         return [job_from_row(row) for row in rows]
+
+
+class SqlConversationRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, conversation: Conversation) -> None:
+        self._session.add(conversation_to_row(conversation))
+        await self._session.flush()
+
+    async def save(self, conversation: Conversation) -> None:
+        row = await self._session.get(ConversationRow, conversation.id)
+        if row is None or row.workspace_id != conversation.workspace_id:
+            raise NotFound(f"conversation {conversation.id} not found in its workspace")
+        apply_conversation(row, conversation)
+
+    def _scoped(self, workspace_id: UUID) -> Select[tuple[ConversationRow]]:
+        return (
+            select(ConversationRow)
+            .where(ConversationRow.workspace_id == workspace_id)
+            .where(ConversationRow.deleted_at.is_(None))
+        )
+
+    async def get(self, workspace_id: UUID, conversation_id: UUID) -> Conversation | None:
+        stmt = self._scoped(workspace_id).where(ConversationRow.id == conversation_id)
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return conversation_from_row(row) if row is not None else None
+
+    async def list_recent(self, workspace_id: UUID, *, limit: int = 50) -> list[Conversation]:
+        stmt = self._scoped(workspace_id).order_by(ConversationRow.updated_at.desc()).limit(limit)
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [conversation_from_row(row) for row in rows]
+
+
+class SqlMessageRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, message: Message) -> None:
+        self._session.add(message_to_row(message))
+        await self._session.flush()
+
+    def _scoped(self, workspace_id: UUID) -> Select[tuple[MessageRow]]:
+        return (
+            select(MessageRow)
+            .join(ConversationRow, MessageRow.conversation_id == ConversationRow.id)
+            .where(ConversationRow.workspace_id == workspace_id)
+        )
+
+    async def get(self, workspace_id: UUID, message_id: UUID) -> Message | None:
+        stmt = self._scoped(workspace_id).where(MessageRow.id == message_id)
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return message_from_row(row) if row is not None else None
+
+    async def list_for_conversation(
+        self, workspace_id: UUID, conversation_id: UUID, *, limit: int = 500
+    ) -> list[Message]:
+        stmt = (
+            self._scoped(workspace_id)
+            .where(MessageRow.conversation_id == conversation_id)
+            .order_by(MessageRow.id)  # UUIDv7 PK order IS chronological order
+            .limit(limit)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [message_from_row(row) for row in rows]
+
+    async def count_for_conversation(self, workspace_id: UUID, conversation_id: UUID) -> int:
+        scoped = self._scoped(workspace_id).where(MessageRow.conversation_id == conversation_id)
+        stmt = select(func.count()).select_from(scoped.subquery())
+        return (await self._session.execute(stmt)).scalar_one()
+
+
+class SqlMemoryRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, memory: Memory) -> None:
+        self._session.add(memory_to_row(memory))
+        await self._session.flush()
+
+    async def save(self, memory: Memory) -> None:
+        row = await self._session.get(MemoryRow, memory.id)
+        if row is None or row.workspace_id != memory.workspace_id:
+            raise NotFound(f"memory {memory.id} not found in its workspace")
+        apply_memory(row, memory)
+
+    async def get(self, workspace_id: UUID, memory_id: UUID) -> Memory | None:
+        stmt = (
+            select(MemoryRow)
+            .where(MemoryRow.workspace_id == workspace_id)
+            .where(MemoryRow.id == memory_id)
+            .where(MemoryRow.deleted_at.is_(None))
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return memory_from_row(row) if row is not None else None
+
+    async def list_active(
+        self, workspace_id: UUID, *, kind: MemoryKind | None = None, limit: int = 200
+    ) -> list[Memory]:
+        stmt = (
+            select(MemoryRow)
+            .where(MemoryRow.workspace_id == workspace_id)
+            .where(MemoryRow.deleted_at.is_(None))
+            .where(or_(MemoryRow.expires_at.is_(None), MemoryRow.expires_at > func.now()))
+            .order_by(MemoryRow.created_at.desc())
+            .limit(limit)
+        )
+        if kind is not None:
+            stmt = stmt.where(MemoryRow.kind == kind)
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [memory_from_row(row) for row in rows]

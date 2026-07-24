@@ -12,9 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from atlas.infrastructure.persistence.repositories import (
     SqlChunkRepository,
+    SqlConversationRepository,
     SqlDocumentRepository,
     SqlDocumentVersionRepository,
     SqlIngestionJobRepository,
+    SqlMemoryRepository,
+    SqlMessageRepository,
     SqlSourceRepository,
 )
 
@@ -25,6 +28,9 @@ class SqlAlchemyUnitOfWork:
     document_versions: SqlDocumentVersionRepository
     chunks: SqlChunkRepository
     ingestion_jobs: SqlIngestionJobRepository
+    conversations: SqlConversationRepository
+    messages: SqlMessageRepository
+    memories: SqlMemoryRepository
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
@@ -37,6 +43,9 @@ class SqlAlchemyUnitOfWork:
         self.document_versions = SqlDocumentVersionRepository(self._session)
         self.chunks = SqlChunkRepository(self._session)
         self.ingestion_jobs = SqlIngestionJobRepository(self._session)
+        self.conversations = SqlConversationRepository(self._session)
+        self.messages = SqlMessageRepository(self._session)
+        self.memories = SqlMemoryRepository(self._session)
         return self
 
     async def __aexit__(
