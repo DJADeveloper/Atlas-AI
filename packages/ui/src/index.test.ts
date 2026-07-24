@@ -1,7 +1,10 @@
 import { expect, test } from "vitest";
 
-import { PACKAGE_NAME } from "./index.js";
+import { toneForState } from "./index";
 
-test("workspace package is wired into the test pipeline", () => {
-  expect(PACKAGE_NAME).toBe("@atlas/ui");
+test("state-to-tone vocabulary is total", () => {
+  expect(toneForState("succeeded")).toBe("ok");
+  expect(toneForState("running")).toBe("busy");
+  expect(toneForState("failed")).toBe("error");
+  expect(toneForState("anything-else")).toBe("muted");
 });

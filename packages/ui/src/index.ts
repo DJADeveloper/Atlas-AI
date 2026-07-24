@@ -1,7 +1,4 @@
-/**
- * Placeholder module for @atlas/ui.
- *
- * Shared shadcn-based primitives land alongside the web UI at M09; until then this package exists so the pnpm workspace graph,
- * typecheck, and test pipeline exercise every package from M01 onward.
- */
-export const PACKAGE_NAME = "@atlas/ui";
+/** @atlas/ui — shared primitives (M09): chip, stream cursor, badge. */
+
+export { Chip, StatusBadge, StreamCursor, toneForState } from "./primitives";
+export type { ChipProps, StatusBadgeProps, StatusToneName } from "./primitives";

@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+/* Dark mode is the class strategy: <html class="dark"> (M09). */
+@custom-variant dark (&:where(.dark, .dark *));
