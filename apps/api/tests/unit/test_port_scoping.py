@@ -30,6 +30,7 @@ def test_contexts_expose_the_expected_ports() -> None:
     names = sorted(cls.__name__ for cls in _repository_ports())
     assert names == [
         "ChunkRepository",
+        "CitationRepository",
         "ConversationRepository",
         "DocumentRepository",
         "DocumentVersionRepository",

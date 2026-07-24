@@ -7,11 +7,17 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
+from sqlalchemy import delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from atlas.domain.conversation import Conversation, Message
+from atlas.domain.conversation import Citation, Conversation, Message
+from atlas.domain.knowledge.entities import Chunk, Document, DocumentVersion, Source
+from atlas.domain.knowledge.values import ContentHash
 from atlas.domain.memory import Memory
 from atlas.infrastructure.persistence.bootstrap import ensure_default_workspace
+from atlas.infrastructure.persistence.prompts import SqlPromptRegistry
+from atlas.infrastructure.persistence.tables import ChunkRow
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 
 pytestmark = pytest.mark.integration
@@ -77,6 +83,7 @@ class TestConversations:
 
 class TestMessages:
     async def test_chronological_order_and_usage_precision(self, rig: Rig) -> None:
+        prompt_version_id = (await SqlPromptRegistry(rig.factory).get("chat.system")).version_id
         conversation = Conversation(workspace_id=rig.workspace_id)
         turns = [
             Message(conversation_id=conversation.id, role="user", content="What is our PTO?"),
@@ -86,7 +93,7 @@ class TestMessages:
                 content="25 days per year.",
                 model="claude-sonnet-5",
                 provider="anthropic",
-                prompt_version="chat.v1",
+                prompt_version_id=prompt_version_id,
                 input_tokens=3812,
                 output_tokens=402,
                 cost_usd=0.017412,
@@ -108,7 +115,7 @@ class TestMessages:
         answer = listed[1]
         assert answer.cost_usd == pytest.approx(0.017412)  # numeric(12,6) exact
         assert (answer.provider, answer.model) == ("anthropic", "claude-sonnet-5")
-        assert answer.prompt_version == "chat.v1"
+        assert answer.prompt_version_id == prompt_version_id
 
     async def test_messages_scoped_via_conversation_workspace(self, rig: Rig) -> None:
         conversation = Conversation(workspace_id=rig.workspace_id)
@@ -166,3 +173,52 @@ class TestMemories:
             by_kind = await uow.memories.list_active(rig.workspace_id, kind="decision")
         assert [m.id for m in active] == [live.id]
         assert [m.id for m in by_kind] == [live.id]
+
+
+class TestCitations:
+    async def test_round_trip_marker_order_and_retention_interlock(self, rig: Rig) -> None:
+        """Citations come back in marker order, scoped by workspace;
+        deleting a cited chunk violates the restrictive FK — the
+        docs/11 §4 retention interlock, proved against real Postgres."""
+        source = Source(workspace_id=rig.workspace_id, kind="folder", name="N", uri="/cite")
+        document = Document(source_id=source.id, path="doc.md", mime_type="text/markdown")
+        version = DocumentVersion(
+            document_id=document.id, content_hash=ContentHash("c" * 64), size_bytes=1, parser="md"
+        )
+        chunk = Chunk(
+            document_version_id=version.id,
+            ordinal=0,
+            text="The notice period is 30 days.",
+            token_count=6,
+            content_hash=ContentHash("d" * 64),
+        )
+        conversation = Conversation(workspace_id=rig.workspace_id)
+        message = Message(conversation_id=conversation.id, role="assistant", content="30 days [1]")
+        async with rig.uow() as uow:
+            await uow.sources.add(source)
+            await uow.documents.add(document)
+            await uow.document_versions.add(version)
+            await uow.chunks.add_all([chunk])
+            await uow.conversations.add(conversation)
+            await uow.messages.add(message)
+            await uow.citations.add_all(
+                [
+                    Citation(message_id=message.id, chunk_id=chunk.id, marker=2, score=0.01),
+                    Citation(message_id=message.id, chunk_id=chunk.id, marker=1, score=0.03),
+                ]
+            )
+            await uow.commit()
+
+        async with rig.uow() as uow:
+            listed = await uow.citations.list_for_message(rig.workspace_id, message.id)
+        assert [c.marker for c in listed] == [1, 2]
+        assert all(c.chunk_id == chunk.id for c in listed)
+
+        other = await ensure_default_workspace(rig.factory, name="CiteOther")
+        async with rig.uow() as uow:
+            assert await uow.citations.list_for_message(other, message.id) == []
+
+        async with rig.factory() as session:
+            with pytest.raises(IntegrityError):
+                await session.execute(delete(ChunkRow).where(ChunkRow.id == chunk.id))
+                await session.commit()

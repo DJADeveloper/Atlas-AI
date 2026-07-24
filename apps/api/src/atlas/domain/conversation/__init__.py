@@ -1,15 +1,22 @@
-"""Conversation bounded context (M07): conversations and messages."""
+"""Conversation bounded context (M07/M08): conversations, messages, citations."""
 
 from atlas.domain.conversation.entities import (
     MESSAGE_ROLES,
+    Citation,
     Conversation,
     Message,
     MessageRole,
 )
-from atlas.domain.conversation.ports import ConversationRepository, MessageRepository
+from atlas.domain.conversation.ports import (
+    CitationRepository,
+    ConversationRepository,
+    MessageRepository,
+)
 
 __all__ = [
     "MESSAGE_ROLES",
+    "Citation",
+    "CitationRepository",
     "Conversation",
     "ConversationRepository",
     "Message",

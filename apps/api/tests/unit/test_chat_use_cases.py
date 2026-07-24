@@ -12,6 +12,7 @@ import pytest
 
 from atlas.ai import BreakerBoard, CostMeter, ModelRates, ModelRouter, ResilientExecutor
 from atlas.ai.context import ContextAssembler
+from atlas.ai.prompts import StaticPromptRegistry, spec_for
 from atlas.application.chat import (
     ChatRuntime,
     CreateConversation,
@@ -27,7 +28,6 @@ from atlas.application.chat import (
     StreamUsage,
     SummarizeConversation,
 )
-from atlas.application.chat.prompts import SUMMARIZE_PROMPT
 from atlas.application.memory import RememberFact
 from atlas.domain.ai import (
     ChatEvent,
@@ -115,6 +115,7 @@ def _rig(windows: dict[str, int] | None = None, clock_values: list[float] | None
         executor=executor,
         assembler=assembler,
         cost_meter=cost_meter,
+        prompts=StaticPromptRegistry(),
         profile="hybrid",
     )
     ticks = clock_values if clock_values is not None else [1000.0, 3916.0]
@@ -176,7 +177,7 @@ class TestSendMessage:
         assert answer.id == result.assistant_message.id
         assert answer.model == SONNET
         assert answer.provider == "anthropic"
-        assert answer.prompt_version == "chat_system.v1"
+        assert answer.prompt_version_id is not None
         assert answer.input_tokens == 3812
         assert answer.output_tokens == 402
         assert answer.cost_usd == round((3812 * 3.00 + 402 * 15.00) / 1_000_000, 6)  # 0.017466
@@ -400,7 +401,7 @@ class TestSummarizeConversation:
 
         model, request = rig.anthropic.requests[-1]
         assert model == HAIKU
-        assert request.messages[0].content == SUMMARIZE_PROMPT
+        assert request.messages[0].content == spec_for("conversation.summarize").template
         assert "notice period is 30 days" in request.messages[1].content
 
         async with rig.uow() as uow:

@@ -30,6 +30,7 @@ _MIGRATION_OWNED_INDEXES = {
     "ingestion_jobs_active_dedupe_idx",
     "conversations_ws_idx",
     "memories_scope_idx",
+    "citations_chunk_idx",
 }
 
 

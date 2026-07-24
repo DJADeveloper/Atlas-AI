@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from atlas.domain.conversation.entities import Conversation, Message
+from atlas.domain.conversation.entities import Citation, Conversation, Message
 from atlas.domain.knowledge.entities import (
     Chunk,
     Document,
@@ -40,6 +40,8 @@ from atlas.infrastructure.persistence.mappers import (
     apply_source,
     chunk_from_row,
     chunk_to_row,
+    citation_from_row,
+    citation_to_row,
     conversation_from_row,
     conversation_to_row,
     document_from_row,
@@ -58,6 +60,7 @@ from atlas.infrastructure.persistence.mappers import (
 )
 from atlas.infrastructure.persistence.tables import (
     ChunkRow,
+    CitationRow,
     ConversationRow,
     DocumentRow,
     DocumentVersionRow,
@@ -456,6 +459,28 @@ class SqlMessageRepository:
         )
         row = (await self._session.execute(stmt)).scalar_one_or_none()
         return message_from_row(row) if row is not None else None
+
+
+class SqlCitationRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add_all(self, citations: list[Citation]) -> None:
+        for citation in citations:
+            self._session.add(citation_to_row(citation))
+        await self._session.flush()
+
+    async def list_for_message(self, workspace_id: UUID, message_id: UUID) -> list[Citation]:
+        stmt = (
+            select(CitationRow)
+            .join(MessageRow, CitationRow.message_id == MessageRow.id)
+            .join(ConversationRow, MessageRow.conversation_id == ConversationRow.id)
+            .where(ConversationRow.workspace_id == workspace_id)
+            .where(CitationRow.message_id == message_id)
+            .order_by(CitationRow.marker)
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [citation_from_row(row) for row in rows]
 
 
 class SqlMemoryRepository:

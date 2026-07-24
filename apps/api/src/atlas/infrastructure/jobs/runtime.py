@@ -22,6 +22,7 @@ from atlas.domain.ai.provider import LLMProvider
 from atlas.infrastructure.jobs.celery_app import create_celery_app
 from atlas.infrastructure.jobs.dispatcher import CeleryIngestionDispatcher
 from atlas.infrastructure.parsing import default_registry
+from atlas.infrastructure.persistence.prompts import SqlPromptRegistry
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
 from atlas.infrastructure.providers.anthropic import AnthropicChatProvider
 from atlas.infrastructure.providers.ollama import OllamaChatProvider, OllamaEmbeddingProvider
@@ -65,6 +66,7 @@ def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
         executor=ResilientExecutor(providers, BreakerBoard(time.monotonic), sleep=asyncio.sleep),
         assembler=ContextAssembler(),
         cost_meter=CostMeter(),
+        prompts=SqlPromptRegistry(session_factory),
         profile=as_routing_profile(resolved.profile),
     )
 

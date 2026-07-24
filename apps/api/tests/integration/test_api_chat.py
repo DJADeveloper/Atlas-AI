@@ -20,6 +20,7 @@ from atlas.ai.context import ContextAssembler
 from atlas.application.chat import ChatRuntime
 from atlas.config.settings import Settings
 from atlas.domain.ai import ChatEvent, LLMProvider, ProviderError, ProviderUnavailable, Usage
+from atlas.infrastructure.persistence.prompts import SqlPromptRegistry
 from atlas.infrastructure.streams import RETENTION_SECONDS
 from atlas.presentation.app import create_app
 from atlas.presentation.composition import Container
@@ -115,6 +116,7 @@ async def api(migrated_database_url: str, redis_url: str) -> AsyncIterator[ChatA
             ),
             assembler=ContextAssembler(),
             cost_meter=CostMeter(),
+            prompts=SqlPromptRegistry(container.session_factory),
             profile="hybrid",
         )
         app.state.container = replace(container, chat_runtime=runtime)

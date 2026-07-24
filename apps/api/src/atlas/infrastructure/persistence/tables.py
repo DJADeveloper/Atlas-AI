@@ -258,7 +258,7 @@ class ConversationRow(_Stamped, Base):
 
 class MessageRow(_CreatedOnly, Base):
     """Immutable; UUIDv7 PK order = chronological order (docs/11 §2.4).
-    prompt_version is text until the M08 registry adds prompt_versions."""
+    prompt_version_id points into the M08 prompt registry."""
 
     __tablename__ = "messages"
     __table_args__ = (
@@ -275,7 +275,9 @@ class MessageRow(_CreatedOnly, Base):
     abstained: Mapped[bool] = mapped_column(Boolean, server_default=sql_text("false"))
     model: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider: Mapped[str | None] = mapped_column(Text, nullable=True)
-    prompt_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    prompt_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("prompt_versions.id"), nullable=True
+    )
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), nullable=True)
@@ -302,3 +304,40 @@ class MemoryRow(_Stamped, Base):
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class PromptRow(_Stamped, Base):
+    __tablename__ = "prompts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(Text, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PromptVersionRow(_CreatedOnly, Base):
+    """Immutable: a version's template never changes (docs/11 §5);
+    content_hash is the drift guard the registry checks on load."""
+
+    __tablename__ = "prompt_versions"
+    __table_args__ = (UniqueConstraint("prompt_id", "version"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    prompt_id: Mapped[UUID] = mapped_column(ForeignKey("prompts.id"))
+    version: Mapped[int] = mapped_column(Integer)
+    template: Mapped[str] = mapped_column(Text)
+    variables: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    content_hash: Mapped[str] = mapped_column(Text)
+
+
+class CitationRow(_CreatedOnly, Base):
+    """Immutable; chunk_id has NO cascade — deleting cited evidence
+    must fail loudly (the docs/11 §4 retention interlock)."""
+
+    __tablename__ = "citations"
+    __table_args__ = (UniqueConstraint("message_id", "marker"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    message_id: Mapped[UUID] = mapped_column(ForeignKey("messages.id", ondelete="CASCADE"))
+    chunk_id: Mapped[UUID] = mapped_column(ForeignKey("chunks.id"))
+    marker: Mapped[int] = mapped_column(Integer)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)

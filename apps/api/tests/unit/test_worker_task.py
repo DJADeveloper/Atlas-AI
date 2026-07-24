@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from atlas.ai import BreakerBoard, CostMeter, ModelRouter, ResilientExecutor
 from atlas.ai.context import ContextAssembler
+from atlas.ai.prompts import StaticPromptRegistry
 from atlas.application.chat import ChatRuntime, GenerateTitle, SummarizeConversation
 from atlas.application.ingestion import DetectChanges, EmbedDocument, IngestDocument
 from atlas.config.settings import Settings
@@ -52,6 +53,7 @@ def _chat_runtime() -> ChatRuntime:
         executor=ResilientExecutor({}, BreakerBoard(lambda: 0.0), sleep=_never_sleep),
         assembler=ContextAssembler(),
         cost_meter=CostMeter(),
+        prompts=StaticPromptRegistry(),
         profile="local_only",
     )
 

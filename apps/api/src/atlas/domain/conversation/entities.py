@@ -88,7 +88,7 @@ class Message:
     abstained: bool = False  # grounded-or-silent, made queryable (M08 flips it)
     model: str | None = None
     provider: str | None = None
-    prompt_version: str | None = None  # text until the M08 registry adds the FK
+    prompt_version_id: UUID | None = None  # FK into prompt_versions (M08 registry)
     input_tokens: int | None = None
     output_tokens: int | None = None
     cost_usd: float | None = None
@@ -108,3 +108,21 @@ class Message:
                 raise ValidationFailed(f"{name} must be >= 0")
         if self.cost_usd is not None and self.cost_usd < 0:
             raise ValidationFailed("cost_usd must be >= 0")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Citation:
+    """One [n] marker resolved to a real chunk (spine §10). Immutable,
+    like the answer it belongs to; `chunk_id` carries the restrictive
+    FK that stops cited evidence from being deleted (docs/11 §4)."""
+
+    id: UUID = field(default_factory=uuid7)
+    message_id: UUID
+    chunk_id: UUID
+    marker: int
+    score: float | None = None
+    created_at: datetime = field(default_factory=utc_now)
+
+    def __post_init__(self) -> None:
+        if self.marker < 1:
+            raise ValidationFailed("citation markers are 1-based")

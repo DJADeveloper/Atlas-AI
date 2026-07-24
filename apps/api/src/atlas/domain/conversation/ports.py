@@ -7,7 +7,7 @@ SQL — swept by the introspection test alongside the knowledge ports."""
 from typing import Protocol
 from uuid import UUID
 
-from atlas.domain.conversation.entities import Conversation, Message
+from atlas.domain.conversation.entities import Citation, Conversation, Message
 
 
 class ConversationRepository(Protocol):
@@ -32,4 +32,12 @@ class MessageRepository(Protocol):
         self, workspace_id: UUID, conversation_id: UUID
     ) -> Message | None:
         """Newest message (UUIDv7 max), for last_message_at summaries."""
+        ...
+
+
+class CitationRepository(Protocol):
+    async def add_all(self, citations: list[Citation]) -> None: ...
+
+    async def list_for_message(self, workspace_id: UUID, message_id: UUID) -> list[Citation]:
+        """Marker order (the [n] sequence as emitted)."""
         ...

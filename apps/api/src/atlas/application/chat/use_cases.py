@@ -27,13 +27,8 @@ from uuid import UUID
 from atlas.ai.context import AssembledContext, ContextAssembler, ContextSources, Turn
 from atlas.ai.cost import CostMeter
 from atlas.ai.executor import ResilientExecutor
+from atlas.ai.prompts import PromptProvider, RegisteredPrompt
 from atlas.ai.routing import ModelRouter, Profile, RoutePlan
-from atlas.application.chat.prompts import (
-    CHAT_PROMPT_VERSION,
-    CHAT_SYSTEM_PROMPT,
-    SUMMARIZE_PROMPT,
-    TITLE_PROMPT,
-)
 from atlas.application.memory.use_cases import rank_memories
 from atlas.application.ports import ChatDispatcher, UnitOfWork
 from atlas.domain.ai.errors import ProviderError
@@ -45,6 +40,10 @@ from atlas.shared.ids import uuid7
 # Verbatim turns kept out of every fold: the model always sees the
 # recent exchange as actually written, never only summarized.
 KEEP_RECENT_TURNS = 6
+
+# Which registered prompt anchors the exchange; retrieval-grounded
+# answering (chat.grounded) takes over in the M08 wiring commit.
+CHAT_PROMPT_NAME = "chat.system"
 
 MAX_TITLE_WORDS = 6
 
@@ -103,6 +102,7 @@ class ChatRuntime:
     executor: ResilientExecutor
     assembler: ContextAssembler
     cost_meter: CostMeter
+    prompts: PromptProvider
     profile: Profile
 
 
@@ -112,6 +112,7 @@ class _PreparedExchange:
     user_message: Message
     assembled: AssembledContext
     plan: RoutePlan
+    prompt: RegisteredPrompt
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +154,7 @@ class _ExchangeBase:
         self, workspace_id: UUID, conversation_id: UUID, content: str, trace_id: str | None
     ) -> _PreparedExchange:
         plan = self._runtime.router.plan("chat", self._profile)
+        prompt = await self._runtime.prompts.get(CHAT_PROMPT_NAME)
         async with self._uow_factory() as uow:
             conversation = await uow.conversations.get(workspace_id, conversation_id)
             if conversation is None or conversation.is_deleted:
@@ -172,7 +174,7 @@ class _ExchangeBase:
         assembled = self._runtime.assembler.assemble(
             model=plan.chain[0].model,
             max_tokens=plan.max_tokens,
-            system_prompt=CHAT_SYSTEM_PROMPT,
+            system_prompt=prompt.template,
             turns=turns,
             sources=ContextSources(
                 memories=[f"[{memory.kind}] {memory.content}" for memory in ranked],
@@ -184,6 +186,7 @@ class _ExchangeBase:
             user_message=user_message,
             assembled=assembled,
             plan=plan,
+            prompt=prompt,
         )
 
     async def _persist_answer(
@@ -220,7 +223,7 @@ class _ExchangeBase:
             content=content,
             model=served.model,
             provider=served.provider,
-            prompt_version=CHAT_PROMPT_VERSION,
+            prompt_version_id=prepared.prompt.version_id,
             input_tokens=served.usage.input_tokens,
             output_tokens=served.usage.output_tokens,
             cost_usd=self._runtime.cost_meter.cost_usd(served.model, served.usage),
@@ -356,7 +359,7 @@ class StreamAnswer(_ExchangeBase):
             conversation_id=conversation_id,
             model=rung.model,
             provider=rung.provider,
-            prompt_version=CHAT_PROMPT_VERSION,
+            prompt_version=prepared.prompt.label,
             trace_id=trace_id,
             degraded=degraded,
         )
@@ -401,7 +404,7 @@ class StreamAnswer(_ExchangeBase):
         yield StreamUsage(
             model=rung.model,
             provider=rung.provider,
-            prompt_version=CHAT_PROMPT_VERSION,
+            prompt_version=prepared.prompt.label,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
             cost_usd=answer.cost_usd if answer.cost_usd is not None else 0.0,
@@ -445,10 +448,11 @@ class SummarizeConversation:
             if conversation.summary
             else ""
         )
+        prompt = await self.runtime.prompts.get("conversation.summarize")
         plan = self.runtime.router.plan("classification", self.runtime.profile)
         request = ChatRequest(
             messages=[
-                ProviderChatMessage(role="system", content=SUMMARIZE_PROMPT),
+                ProviderChatMessage(role="system", content=prompt.template),
                 ProviderChatMessage(role="user", content=f"{prior}{transcript}"),
             ],
             max_tokens=plan.max_tokens,
@@ -492,10 +496,11 @@ class GenerateTitle:
         )
         if not exchange:
             return None
+        prompt = await self.runtime.prompts.get("conversation.title")
         plan = self.runtime.router.plan("classification", self.runtime.profile)
         request = ChatRequest(
             messages=[
-                ProviderChatMessage(role="system", content=TITLE_PROMPT),
+                ProviderChatMessage(role="system", content=prompt.template),
                 ProviderChatMessage(role="user", content=exchange),
             ],
             max_tokens=plan.max_tokens,

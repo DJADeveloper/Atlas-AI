@@ -23,7 +23,11 @@ from types import TracebackType
 from typing import Protocol
 from uuid import UUID
 
-from atlas.domain.conversation.ports import ConversationRepository, MessageRepository
+from atlas.domain.conversation.ports import (
+    CitationRepository,
+    ConversationRepository,
+    MessageRepository,
+)
 from atlas.domain.knowledge.ports import (
     ChunkRepository,
     DocumentRepository,
@@ -157,6 +161,8 @@ class UnitOfWork(Protocol):
     def conversations(self) -> ConversationRepository: ...
     @property
     def messages(self) -> MessageRepository: ...
+    @property
+    def citations(self) -> CitationRepository: ...
     @property
     def memories(self) -> MemoryRepository: ...
 

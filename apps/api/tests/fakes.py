@@ -22,7 +22,7 @@ from atlas.domain.ai import (
     ProviderUnavailable,
     Usage,
 )
-from atlas.domain.conversation.entities import Conversation, Message
+from atlas.domain.conversation.entities import Citation, Conversation, Message
 from atlas.domain.knowledge.entities import (
     Chunk,
     Document,
@@ -49,6 +49,7 @@ class FakeState:
     jobs: dict[UUID, IngestionJob] = field(default_factory=dict)
     conversations: dict[UUID, Conversation] = field(default_factory=dict)
     messages: dict[UUID, Message] = field(default_factory=dict)
+    citations: dict[UUID, Citation] = field(default_factory=dict)
     memories: dict[UUID, Memory] = field(default_factory=dict)
 
     def workspace_of_source(self, source_id: UUID) -> UUID | None:
@@ -377,6 +378,29 @@ class FakeMessageRepository:
 
 
 @dataclass
+class FakeCitationRepository:
+    state: FakeState
+    messages: FakeMessageRepository
+    pending: dict[UUID, Citation] = field(default_factory=dict)
+
+    def _merged(self) -> dict[UUID, Citation]:
+        return {**self.state.citations, **self.pending}
+
+    async def add_all(self, citations: list[Citation]) -> None:
+        for citation in citations:
+            self.pending[citation.id] = citation  # frozen: safe to share
+
+    async def list_for_message(self, workspace_id: UUID, message_id: UUID) -> list[Citation]:
+        message = await self.messages.get(workspace_id, message_id)
+        if message is None:
+            return []
+        return sorted(
+            (c for c in self._merged().values() if c.message_id == message_id),
+            key=lambda c: c.marker,
+        )
+
+
+@dataclass
 class FakeMemoryRepository:
     state: FakeState
     pending: dict[UUID, Memory] = field(default_factory=dict)
@@ -427,6 +451,7 @@ class FakeUnitOfWork:
     ingestion_jobs: FakeIngestionJobRepository
     conversations: FakeConversationRepository
     messages: FakeMessageRepository
+    citations: FakeCitationRepository
     memories: FakeMemoryRepository
 
     def __init__(self, state: FakeState) -> None:
@@ -440,6 +465,7 @@ class FakeUnitOfWork:
         self.ingestion_jobs = FakeIngestionJobRepository(self._state)
         self.conversations = FakeConversationRepository(self._state)
         self.messages = FakeMessageRepository(self._state, self.conversations)
+        self.citations = FakeCitationRepository(self._state, self.messages)
         self.memories = FakeMemoryRepository(self._state)
         return self
 
@@ -461,6 +487,7 @@ class FakeUnitOfWork:
         self._state.jobs.update(self.ingestion_jobs.pending)
         self._state.conversations.update(self.conversations.pending)
         self._state.messages.update(self.messages.pending)
+        self._state.citations.update(self.citations.pending)
         self._state.memories.update(self.memories.pending)
 
     async def rollback(self) -> None:
@@ -472,6 +499,7 @@ class FakeUnitOfWork:
         self.ingestion_jobs.pending.clear()
         self.conversations.pending.clear()
         self.messages.pending.clear()
+        self.citations.pending.clear()
         self.memories.pending.clear()
 
 

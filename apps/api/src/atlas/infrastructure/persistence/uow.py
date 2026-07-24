@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from atlas.infrastructure.persistence.repositories import (
     SqlChunkRepository,
+    SqlCitationRepository,
     SqlConversationRepository,
     SqlDocumentRepository,
     SqlDocumentVersionRepository,
@@ -30,6 +31,7 @@ class SqlAlchemyUnitOfWork:
     ingestion_jobs: SqlIngestionJobRepository
     conversations: SqlConversationRepository
     messages: SqlMessageRepository
+    citations: SqlCitationRepository
     memories: SqlMemoryRepository
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -45,6 +47,7 @@ class SqlAlchemyUnitOfWork:
         self.ingestion_jobs = SqlIngestionJobRepository(self._session)
         self.conversations = SqlConversationRepository(self._session)
         self.messages = SqlMessageRepository(self._session)
+        self.citations = SqlCitationRepository(self._session)
         self.memories = SqlMemoryRepository(self._session)
         return self
 

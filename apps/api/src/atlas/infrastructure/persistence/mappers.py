@@ -15,6 +15,7 @@ from typing import Any
 
 from atlas.domain.conversation.entities import (
     MESSAGE_ROLES,
+    Citation,
     Conversation,
     Message,
     MessageRole,
@@ -40,6 +41,7 @@ from atlas.domain.knowledge.values import (
 from atlas.domain.memory.entities import MEMORY_KINDS, Memory, MemoryKind
 from atlas.infrastructure.persistence.tables import (
     ChunkRow,
+    CitationRow,
     ConversationRow,
     DocumentRow,
     DocumentVersionRow,
@@ -310,7 +312,7 @@ def message_to_row(entity: Message) -> MessageRow:
         abstained=entity.abstained,
         model=entity.model,
         provider=entity.provider,
-        prompt_version=entity.prompt_version,
+        prompt_version_id=entity.prompt_version_id,
         input_tokens=entity.input_tokens,
         output_tokens=entity.output_tokens,
         cost_usd=None if entity.cost_usd is None else Decimal(str(entity.cost_usd)),
@@ -329,7 +331,7 @@ def message_from_row(row: MessageRow) -> Message:
         abstained=row.abstained,
         model=row.model,
         provider=row.provider,
-        prompt_version=row.prompt_version,
+        prompt_version_id=row.prompt_version_id,
         input_tokens=row.input_tokens,
         output_tokens=row.output_tokens,
         cost_usd=None if row.cost_usd is None else float(row.cost_usd),
@@ -374,4 +376,26 @@ def memory_from_row(row: MemoryRow) -> Memory:
         deleted_at=row.deleted_at,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def citation_to_row(entity: Citation) -> CitationRow:
+    return CitationRow(
+        id=entity.id,
+        message_id=entity.message_id,
+        chunk_id=entity.chunk_id,
+        marker=entity.marker,
+        score=entity.score,
+        created_at=entity.created_at,
+    )
+
+
+def citation_from_row(row: CitationRow) -> Citation:
+    return Citation(
+        id=row.id,
+        message_id=row.message_id,
+        chunk_id=row.chunk_id,
+        marker=row.marker,
+        score=row.score,
+        created_at=row.created_at,
     )

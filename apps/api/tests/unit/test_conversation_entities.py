@@ -72,7 +72,7 @@ class TestMessage:
             content="An answer.",
             model="claude-sonnet-5",
             provider="anthropic",
-            prompt_version="chat.v1",
+            prompt_version_id=uuid7(),
             input_tokens=3812,
             output_tokens=402,
             cost_usd=0.0174,

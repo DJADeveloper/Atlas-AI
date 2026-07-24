@@ -13,6 +13,7 @@ import pytest
 
 from atlas.ai import BreakerBoard, CostMeter, ModelRates, ModelRouter, ResilientExecutor
 from atlas.ai.context import ContextAssembler
+from atlas.ai.prompts import StaticPromptRegistry
 from atlas.application.chat import ChatRuntime, ChatStreamEvent, StreamAnswer, StreamStarted
 from atlas.domain.ai import ChatEvent, LLMProvider, ProviderError, ProviderUnavailable, Usage
 from atlas.domain.conversation.entities import Conversation
@@ -53,6 +54,7 @@ class Rig:
             ),
             assembler=ContextAssembler(),
             cost_meter=CostMeter({SONNET: ModelRates(3.00, 15.00)}),
+            prompts=StaticPromptRegistry(),
             profile="hybrid",
         )
         self.stream = StreamAnswer(
@@ -116,7 +118,7 @@ class TestEventContract:
         }
         assert start["message_id"] == str(message_id)
         assert start["model"] == SONNET
-        assert start["prompt_version"] == "chat_system.v1"
+        assert start["prompt_version"] == "chat.system.v1"
         assert start["trace_id"] == "t-1"
 
         delta = json.loads(buffered[1].data)
