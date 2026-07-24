@@ -65,15 +65,17 @@ class EmbeddingProvider(Protocol):
 class SearchFilters:
     """Retrieval filters, applied in SQL so they provably scope (M06).
 
-    Dates bound the *current version's* creation time — "changed since
-    last week", not "file first seen". The project filter joins at M13
-    when projects exist.
+    Field names follow docs/12 §4.4: ``file_types`` are extensions
+    (``md``, ``pdf`` — how users think about files), and the modified
+    bounds apply to the *current version's* creation time — "changed
+    since last week", not "file first seen". The project filter joins
+    at M13 when projects exist.
     """
 
     source_ids: tuple[UUID, ...] = ()
-    mime_types: tuple[str, ...] = ()
-    created_after: datetime | None = None
-    created_before: datetime | None = None
+    file_types: tuple[str, ...] = ()
+    modified_after: datetime | None = None
+    modified_before: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

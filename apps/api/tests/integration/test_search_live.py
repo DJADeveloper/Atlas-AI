@@ -208,16 +208,16 @@ class TestFilterScoping:
         cutoff = datetime(2025, 1, 1, tzinfo=UTC)
         combinations = [
             SearchFilters(source_ids=(source_a.id,)),
-            SearchFilters(mime_types=("text/markdown",)),
-            SearchFilters(mime_types=("text/plain",)),
-            SearchFilters(created_after=cutoff),
-            SearchFilters(created_before=cutoff),
-            SearchFilters(source_ids=(source_a.id,), mime_types=("text/markdown",)),
-            SearchFilters(source_ids=(source_a.id,), created_after=cutoff),
+            SearchFilters(file_types=("md",)),
+            SearchFilters(file_types=("txt",)),
+            SearchFilters(modified_after=cutoff),
+            SearchFilters(modified_before=cutoff),
+            SearchFilters(source_ids=(source_a.id,), file_types=("md",)),
+            SearchFilters(source_ids=(source_a.id,), modified_after=cutoff),
             SearchFilters(
                 source_ids=(source_a.id,),
-                mime_types=("text/plain",),
-                created_after=cutoff,
+                file_types=("txt",),
+                modified_after=cutoff,
             ),
         ]
         async with rig.uow() as uow:
@@ -246,12 +246,13 @@ class TestFilterScoping:
                 document = documents[candidate.document_id]
                 if filters.source_ids:
                     assert document.source_id in filters.source_ids, filters
-                if filters.mime_types:
-                    assert document.mime_type in filters.mime_types, filters
-                if filters.created_after is not None:
-                    assert version_times[document.id] >= filters.created_after, filters
-                if filters.created_before is not None:
-                    assert version_times[document.id] <= filters.created_before, filters
+                if filters.file_types:
+                    suffix = document.path.rsplit(".", 1)[-1].lower()
+                    assert suffix in filters.file_types, filters
+                if filters.modified_after is not None:
+                    assert version_times[document.id] >= filters.modified_after, filters
+                if filters.modified_before is not None:
+                    assert version_times[document.id] <= filters.modified_before, filters
 
 
 class TestHybridEndToEnd:

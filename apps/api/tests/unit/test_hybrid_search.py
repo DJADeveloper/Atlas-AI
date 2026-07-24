@@ -78,7 +78,7 @@ class TestSpineParametersAreRequested:
 
     async def test_filters_reach_both_modes_verbatim(self) -> None:
         searcher = RecordingSearcher()
-        filters = SearchFilters(source_ids=(uuid7(),), mime_types=("text/markdown",))
+        filters = SearchFilters(source_ids=(uuid7(),), file_types=("md",))
         await HybridSearch(searcher, FakeEmbeddingProvider()).execute(uuid7(), "q", filters=filters)
         assert all(f == filters for _, _, _, f in searcher.requests)
 

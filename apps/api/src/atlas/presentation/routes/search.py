@@ -22,23 +22,28 @@ router = APIRouter(prefix="/api/v1", tags=["search"])
 
 
 class SearchFiltersBody(BaseModel):
+    """Shapes per docs/12 §4.4; project_id joins at M13 (projects)."""
+
     source_ids: list[UUID] = Field(default_factory=list)
-    mime_types: list[str] = Field(default_factory=list, max_length=20)
-    created_after: datetime | None = None
-    created_before: datetime | None = None
+    file_types: list[str] = Field(default_factory=list, max_length=20)
+    modified_after: datetime | None = None
+    modified_before: datetime | None = None
 
     def to_filters(self) -> SearchFilters:
         return SearchFilters(
             source_ids=tuple(self.source_ids),
-            mime_types=tuple(self.mime_types),
-            created_after=self.created_after,
-            created_before=self.created_before,
+            file_types=tuple(self.file_types),
+            modified_after=self.modified_after,
+            modified_before=self.modified_before,
         )
 
 
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=1000)
-    limit: int = Field(default=FUSED_RESULT_LIMIT, ge=1, le=FUSED_RESULT_LIMIT)
+    top_k: int = Field(default=FUSED_RESULT_LIMIT, ge=1, le=FUSED_RESULT_LIMIT)
+    # Accepted per docs/12; a no-op until a reranker adapter is
+    # configured (spine §10: rerank optional, off by default).
+    rerank: bool = False
     filters: SearchFiltersBody = Field(default_factory=SearchFiltersBody)
 
 
@@ -78,7 +83,7 @@ async def search(
     workspace_id: Annotated[UUID, Depends(get_workspace_id)],
 ) -> SearchResponse:
     results = await container.hybrid_search().execute(
-        workspace_id, body.query, filters=body.filters.to_filters(), limit=body.limit
+        workspace_id, body.query, filters=body.filters.to_filters(), limit=body.top_k
     )
     return SearchResponse(
         query=body.query,

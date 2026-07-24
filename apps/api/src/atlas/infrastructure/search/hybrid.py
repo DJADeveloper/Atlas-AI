@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, func, select, text
+from sqlalchemy import Select, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from atlas.application.ports import Candidate, SearchFilters
@@ -55,12 +55,16 @@ class SqlCandidateSearcher:
         )
         if filters.source_ids:
             stmt = stmt.where(DocumentRow.source_id.in_(filters.source_ids))
-        if filters.mime_types:
-            stmt = stmt.where(DocumentRow.mime_type.in_(filters.mime_types))
-        if filters.created_after is not None:
-            stmt = stmt.where(DocumentVersionRow.created_at >= filters.created_after)
-        if filters.created_before is not None:
-            stmt = stmt.where(DocumentVersionRow.created_at <= filters.created_before)
+        if filters.file_types:
+            extension_matches = [
+                DocumentRow.path.ilike(f"%.{file_type.lstrip('.').lower()}")
+                for file_type in filters.file_types
+            ]
+            stmt = stmt.where(or_(*extension_matches))
+        if filters.modified_after is not None:
+            stmt = stmt.where(DocumentVersionRow.created_at >= filters.modified_after)
+        if filters.modified_before is not None:
+            stmt = stmt.where(DocumentVersionRow.created_at <= filters.modified_before)
         return stmt
 
     async def find_vector_candidates(

@@ -111,7 +111,7 @@ async def test_search_returns_fused_results_with_ranks_and_highlights(api: Api) 
 async def test_search_filters_scope_results(api: Api) -> None:
     scoped = await api.http.post(
         "/api/v1/search",
-        json={"query": "policy", "filters": {"mime_types": ["application/pdf"]}},
+        json={"query": "policy", "filters": {"file_types": ["pdf"]}},
     )
     assert scoped.status_code == 200
     assert scoped.json()["results"] == []
@@ -120,7 +120,7 @@ async def test_search_filters_scope_results(api: Api) -> None:
 async def test_search_validation_shapes(api: Api) -> None:
     empty = await api.http.post("/api/v1/search", json={"query": ""})
     assert empty.status_code == 422  # pydantic min_length
-    too_many = await api.http.post("/api/v1/search", json={"query": "q", "limit": 50})
+    too_many = await api.http.post("/api/v1/search", json={"query": "q", "top_k": 50})
     assert too_many.status_code == 422
 
 
