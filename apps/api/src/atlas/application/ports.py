@@ -17,6 +17,8 @@ embed stage sees every byte of every indexed document.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from types import TracebackType
 from typing import Protocol
 from uuid import UUID
@@ -57,6 +59,65 @@ class EmbeddingProvider(Protocol):
         """Embed a search query (query task prefix applied by the
         adapter). Used from M06's retrieval path."""
         ...
+
+
+@dataclass(frozen=True, slots=True)
+class SearchFilters:
+    """Retrieval filters, applied in SQL so they provably scope (M06).
+
+    Dates bound the *current version's* creation time — "changed since
+    last week", not "file first seen". The project filter joins at M13
+    when projects exist.
+    """
+
+    source_ids: tuple[UUID, ...] = ()
+    mime_types: tuple[str, ...] = ()
+    created_after: datetime | None = None
+    created_before: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Candidate:
+    """One candidate from a single retrieval mode, rank implied by
+    position; ``highlight`` is set for FTS matches (ts_headline)."""
+
+    chunk_id: UUID
+    document_id: UUID
+    text: str
+    score: float
+    heading_path: tuple[str, ...] = ()
+    highlight: str | None = None
+
+
+class CandidateSearcher(Protocol):
+    """Candidate generation over the index (spine §10). Named find_* and
+    workspace_id-first to honor the scoping convention by inspection."""
+
+    async def find_vector_candidates(
+        self,
+        workspace_id: UUID,
+        embedding: Sequence[float],
+        *,
+        limit: int,
+        filters: SearchFilters,
+    ) -> list[Candidate]: ...
+
+    async def find_keyword_candidates(
+        self,
+        workspace_id: UUID,
+        query: str,
+        *,
+        limit: int,
+        filters: SearchFilters,
+    ) -> list[Candidate]: ...
+
+
+class Reranker(Protocol):
+    """Optional cross-encoder over the fused candidates (spine §10,
+    off by default; a local bge-reranker-base adapter arrives when the
+    quality numbers ask for it)."""
+
+    async def rerank(self, query: str, candidates: Sequence[Candidate]) -> list[Candidate]: ...
 
 
 class UnitOfWork(Protocol):
