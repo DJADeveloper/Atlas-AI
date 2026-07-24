@@ -54,8 +54,11 @@ async def api(migrated_database_url: str, redis_url: str) -> AsyncIterator[Api]:
 
 async def _seed(rig: Api) -> None:
     """One source, one document, two embedded chunks — vectors from the
-    same fake provider the app now uses for query embedding."""
-    workspace_id = await ensure_default_workspace(rig.factory, name="Atlas")
+    same fake provider the app now uses for query embedding. Seeds the
+    DEFAULT workspace ("Local") — the same one get_workspace_id resolves
+    for every request; a differently named workspace would be invisible
+    to the API (which is itself the scoping working as designed)."""
+    workspace_id = await ensure_default_workspace(rig.factory)
     source = Source(workspace_id=workspace_id, kind="folder", name="Docs", uri="/seeded")
     document = Document(source_id=source.id, path="policy.md", mime_type="text/markdown")
     document.title = "Policies"
