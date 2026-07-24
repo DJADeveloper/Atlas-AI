@@ -10,6 +10,9 @@ import json
 
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from atlas.ai import BreakerBoard, CostMeter, ModelRouter, ResilientExecutor
+from atlas.ai.context import ContextAssembler
+from atlas.application.chat import ChatRuntime, GenerateTitle, SummarizeConversation
 from atlas.application.ingestion import DetectChanges, EmbedDocument, IngestDocument
 from atlas.config.settings import Settings
 from atlas.domain.knowledge.entities import Source
@@ -37,6 +40,22 @@ _CLOSED_PORT_SETTINGS = Settings(
 )
 
 
+async def _never_sleep(_seconds: float) -> None:
+    return None
+
+
+def _chat_runtime() -> ChatRuntime:
+    """Inert chat runtime: these tests exercise ingest tasks only, so
+    the executor holds no providers and would fail closed if dialed."""
+    return ChatRuntime(
+        router=ModelRouter(),
+        executor=ResilientExecutor({}, BreakerBoard(lambda: 0.0), sleep=_never_sleep),
+        assembler=ContextAssembler(),
+        cost_meter=CostMeter(),
+        profile="local_only",
+    )
+
+
 def _fake_runtime(state: FakeState, files: FakeFileStore) -> WorkerRuntime:
     def uow_factory() -> FakeUnitOfWork:
         return FakeUnitOfWork(state)
@@ -51,6 +70,10 @@ def _fake_runtime(state: FakeState, files: FakeFileStore) -> WorkerRuntime:
             dispatcher=FakeDispatcher(),
         ),
         embed_document=EmbedDocument(uow_factory=uow_factory, provider=FakeEmbeddingProvider()),
+        summarize_conversation=SummarizeConversation(
+            uow_factory=uow_factory, runtime=_chat_runtime()
+        ),
+        title_conversation=GenerateTitle(uow_factory=uow_factory, runtime=_chat_runtime()),
     )
 
 

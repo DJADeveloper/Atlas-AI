@@ -272,6 +272,8 @@ def conversation_to_row(entity: Conversation) -> ConversationRow:
         id=entity.id,
         workspace_id=entity.workspace_id,
         title=entity.title,
+        summary=entity.summary,
+        summary_through_message_id=entity.summary_through_message_id,
         deleted_at=entity.deleted_at,
         created_at=entity.created_at,
         updated_at=entity.updated_at,
@@ -280,6 +282,8 @@ def conversation_to_row(entity: Conversation) -> ConversationRow:
 
 def apply_conversation(row: ConversationRow, entity: Conversation) -> None:
     row.title = entity.title
+    row.summary = entity.summary
+    row.summary_through_message_id = entity.summary_through_message_id
     row.deleted_at = entity.deleted_at
     row.updated_at = entity.updated_at
 
@@ -289,6 +293,8 @@ def conversation_from_row(row: ConversationRow) -> Conversation:
         id=row.id,
         workspace_id=row.workspace_id,
         title=row.title,
+        summary=row.summary,
+        summary_through_message_id=row.summary_through_message_id,
         deleted_at=row.deleted_at,
         created_at=row.created_at,
         updated_at=row.updated_at,

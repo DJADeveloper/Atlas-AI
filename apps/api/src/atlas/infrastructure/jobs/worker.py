@@ -21,6 +21,8 @@ from atlas.config.settings import load_settings
 from atlas.infrastructure.jobs.celery_app import (
     EMBED_TASK_NAME,
     INGEST_TASK_NAME,
+    SUMMARIZE_TASK_NAME,
+    TITLE_TASK_NAME,
     create_celery_app,
 )
 from atlas.infrastructure.jobs.dispatcher import CeleryIngestionDispatcher
@@ -105,3 +107,43 @@ def embed_document_task(
     if outcome.result == "retry_scheduled":
         raise self.retry(countdown=outcome.retry_delay_seconds)
     return outcome.result
+
+
+# Chat background tasks (M07) are fire-and-forget by design: the
+# ResilientExecutor inside already retries and falls back; a task that
+# still fails costs a nicety (a fold, a title), never data, and the
+# next exchange over the threshold re-triggers it.
+
+
+@celery_app.task(name=SUMMARIZE_TASK_NAME)
+def summarize_conversation_task(
+    workspace_id: str, conversation_id: str, trace_id: str | None = None
+) -> str:
+    clear_log_context()
+    if trace_id:
+        bind_trace_id(trace_id)
+    runtime = get_runtime()
+    outcome = asyncio.run(
+        runtime.summarize_conversation.execute(UUID(workspace_id), UUID(conversation_id))
+    )
+    _logger.info(
+        "conversation.summarized",
+        conversation_id=conversation_id,
+        folded_turns=outcome.folded_turns,
+    )
+    return str(outcome.folded_turns)
+
+
+@celery_app.task(name=TITLE_TASK_NAME)
+def title_conversation_task(
+    workspace_id: str, conversation_id: str, trace_id: str | None = None
+) -> str | None:
+    clear_log_context()
+    if trace_id:
+        bind_trace_id(trace_id)
+    runtime = get_runtime()
+    title = asyncio.run(
+        runtime.title_conversation.execute(UUID(workspace_id), UUID(conversation_id))
+    )
+    _logger.info("conversation.titled", conversation_id=conversation_id, title=title)
+    return title

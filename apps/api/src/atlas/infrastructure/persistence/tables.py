@@ -249,6 +249,10 @@ class ConversationRow(_Stamped, Base):
     id: Mapped[UUID] = mapped_column(primary_key=True)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"))
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Watermark carries no FK (0004): messages already FK-reference
+    # conversations, and the pair would be circular for a mere cursor.
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    summary_through_message_id: Mapped[UUID | None] = mapped_column(nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 

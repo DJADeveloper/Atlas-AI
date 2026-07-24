@@ -25,6 +25,12 @@ class Conversation:
     id: UUID = field(default_factory=uuid7)
     workspace_id: UUID
     title: str | None = None
+    # Rolling summary (docs/22 §2): folding, not forgetting — the full
+    # history stays in `messages`. The watermark marks the last message
+    # the summary covers; context assembly replays verbatim turns after
+    # it. UUIDv7 ordering makes "after" a plain id comparison.
+    summary: str | None = None
+    summary_through_message_id: UUID | None = None
     deleted_at: datetime | None = None
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
@@ -48,6 +54,20 @@ class Conversation:
     def touch(self, *, now: datetime | None = None) -> None:
         """Bumps updated_at — the recency the conversation list sorts by."""
         self.updated_at = now if now is not None else utc_now()
+
+    def fold_summary(self, summary: str, *, through_message_id: UUID) -> None:
+        """Advance the rolling summary to a new watermark. Deliberately
+        does NOT touch(): folding is background bookkeeping, and bumping
+        updated_at would reorder the recency-sorted conversation list."""
+        if not summary.strip():
+            raise ValidationFailed("summary must not be empty")
+        if (
+            self.summary_through_message_id is not None
+            and through_message_id.int <= self.summary_through_message_id.int
+        ):
+            raise Conflict("summary watermark must advance")
+        self.summary = summary
+        self.summary_through_message_id = through_message_id
 
     def soft_delete(self, *, now: datetime | None = None) -> None:
         if self.is_deleted:

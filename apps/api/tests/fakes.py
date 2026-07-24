@@ -484,12 +484,24 @@ class FakeDispatcher:
     def __init__(self) -> None:
         self.dispatched: list[tuple[UUID, UUID, str | None]] = []
         self.embed_dispatched: list[tuple[UUID, UUID, str | None]] = []
+        self.summarize_dispatched: list[tuple[UUID, UUID, str | None]] = []
+        self.title_dispatched: list[tuple[UUID, UUID, str | None]] = []
 
     def dispatch(self, workspace_id: UUID, job_id: UUID, trace_id: str | None = None) -> None:
         self.dispatched.append((workspace_id, job_id, trace_id))
 
     def dispatch_embed(self, workspace_id: UUID, job_id: UUID, trace_id: str | None = None) -> None:
         self.embed_dispatched.append((workspace_id, job_id, trace_id))
+
+    def dispatch_summarize(
+        self, workspace_id: UUID, conversation_id: UUID, trace_id: str | None = None
+    ) -> None:
+        self.summarize_dispatched.append((workspace_id, conversation_id, trace_id))
+
+    def dispatch_title(
+        self, workspace_id: UUID, conversation_id: UUID, trace_id: str | None = None
+    ) -> None:
+        self.title_dispatched.append((workspace_id, conversation_id, trace_id))
 
 
 class FakeEmbeddingProvider:

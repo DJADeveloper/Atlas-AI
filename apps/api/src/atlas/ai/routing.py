@@ -15,6 +15,14 @@ Profile = Literal["hybrid", "local_only"]
 TimeoutClass = Literal["interactive_stream", "standard", "escalation", "fast"]
 
 
+def as_routing_profile(config_profile: str) -> Profile:
+    """Map the user-facing profile name (docs/40 spells it
+    ``local-only``) onto the routing literal used throughout atlas.ai.
+    Anything unrecognized fails CLOSED to local-only: a typo in
+    configuration must never quietly enable cloud dispatch."""
+    return "hybrid" if config_profile == "hybrid" else "local_only"
+
+
 @dataclass(frozen=True, slots=True)
 class ModelRef:
     provider: str  # "anthropic" | "ollama"

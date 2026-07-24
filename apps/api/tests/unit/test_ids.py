@@ -1,6 +1,7 @@
 """UUIDv7 generator: M03 acceptance — time-ordered ids (ADR-0009)."""
 
 import time
+from itertools import pairwise
 from uuid import UUID
 
 from atlas.shared.ids import uuid7, uuid7_unix_ms
@@ -42,3 +43,11 @@ def test_ids_are_unique() -> None:
 def test_roundtrip_through_string_form() -> None:
     value = uuid7()
     assert UUID(str(value)) == value
+
+
+def test_ids_mint_in_strictly_increasing_order() -> None:
+    """Same-millisecond monotonicity (RFC 9562 §6.2 fixed-length
+    counter): message chronology and the conversation summary watermark
+    compare ids, so mint order must be sort order (docs/11 §2.4)."""
+    ids = [uuid7() for _ in range(5_000)]
+    assert all(a.int < b.int for a, b in pairwise(ids))

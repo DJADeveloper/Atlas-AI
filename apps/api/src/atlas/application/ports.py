@@ -46,6 +46,21 @@ class IngestionDispatcher(Protocol):
         ...
 
 
+class ChatDispatcher(Protocol):
+    """Background chat work (M07): summarization folds old turns into
+    the rolling summary; title generation names a fresh conversation
+    after its first exchange. Both are fire-and-forget — a lost task
+    costs a nicety, never data (the originals stay in `messages`)."""
+
+    def dispatch_summarize(
+        self, workspace_id: UUID, conversation_id: UUID, trace_id: str | None = None
+    ) -> None: ...
+
+    def dispatch_title(
+        self, workspace_id: UUID, conversation_id: UUID, trace_id: str | None = None
+    ) -> None: ...
+
+
 class EmbeddingProvider(Protocol):
     @property
     def model(self) -> str:

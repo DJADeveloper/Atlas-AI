@@ -10,6 +10,12 @@ INGEST_TASK_NAME = "atlas.ingest_document"
 # ingest.embed without starving parse work, and vice versa.
 EMBED_QUEUE = "ingest.embed"
 EMBED_TASK_NAME = "atlas.embed_document"
+# Chat background work (M07): summarization folds + title naming.
+# Its own queue so a heavy ingest backlog never delays folding, and a
+# provider outage backing this queue up never blocks a parse.
+CHAT_QUEUE = "chat.background"
+SUMMARIZE_TASK_NAME = "atlas.summarize_conversation"
+TITLE_TASK_NAME = "atlas.title_conversation"
 
 
 def create_celery_app(settings: Settings) -> Celery:

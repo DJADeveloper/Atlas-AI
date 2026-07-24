@@ -6,18 +6,25 @@ This is the documented exception to "no module-level singletons":
 `set_runtime` exists precisely so tests inject fakes instead.
 """
 
+import asyncio
+import time
 from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from atlas.ai import BreakerBoard, CostMeter, ModelRouter, ResilientExecutor, as_routing_profile
+from atlas.ai.context import ContextAssembler
+from atlas.application.chat import ChatRuntime, GenerateTitle, SummarizeConversation
 from atlas.application.ingestion import EmbedDocument, IngestDocument
 from atlas.config.settings import Settings, load_settings
+from atlas.domain.ai.provider import LLMProvider
 from atlas.infrastructure.jobs.celery_app import create_celery_app
 from atlas.infrastructure.jobs.dispatcher import CeleryIngestionDispatcher
 from atlas.infrastructure.parsing import default_registry
 from atlas.infrastructure.persistence.uow import SqlAlchemyUnitOfWork
-from atlas.infrastructure.providers.ollama import OllamaEmbeddingProvider
+from atlas.infrastructure.providers.anthropic import AnthropicChatProvider
+from atlas.infrastructure.providers.ollama import OllamaChatProvider, OllamaEmbeddingProvider
 from atlas.infrastructure.watcher.filesystem import LocalFileStore
 from atlas.observability.logging import configure_logging
 
@@ -28,6 +35,8 @@ class WorkerRuntime:
     engine: AsyncEngine
     ingest_document: IngestDocument
     embed_document: EmbedDocument
+    summarize_conversation: SummarizeConversation
+    title_conversation: GenerateTitle
 
 
 def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
@@ -42,6 +51,22 @@ def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
 
     def uow_factory() -> SqlAlchemyUnitOfWork:
         return SqlAlchemyUnitOfWork(session_factory)
+
+    # The worker's own chat runtime for background folds and titles.
+    # The anthropic adapter is registered even without a key: it raises
+    # AuthFailed pre-dial and the chain degrades to local rungs, which
+    # is exactly the hybrid-without-credentials contract (docs/20 §5.4).
+    providers: dict[str, LLMProvider] = {
+        "anthropic": AnthropicChatProvider(resolved.anthropic_api_key),
+        "ollama": OllamaChatProvider(resolved.ollama_url),
+    }
+    chat_runtime = ChatRuntime(
+        router=ModelRouter(),
+        executor=ResilientExecutor(providers, BreakerBoard(time.monotonic), sleep=asyncio.sleep),
+        assembler=ContextAssembler(),
+        cost_meter=CostMeter(),
+        profile=as_routing_profile(resolved.profile),
+    )
 
     return WorkerRuntime(
         settings=resolved,
@@ -61,6 +86,8 @@ def build_worker_runtime(settings: Settings | None = None) -> WorkerRuntime:
                 concurrency=resolved.embedding_concurrency,
             ),
         ),
+        summarize_conversation=SummarizeConversation(uow_factory=uow_factory, runtime=chat_runtime),
+        title_conversation=GenerateTitle(uow_factory=uow_factory, runtime=chat_runtime),
     )
 
 

@@ -25,6 +25,12 @@ def upgrade() -> None:
         sa.Column("id", PGUUID(as_uuid=True), nullable=False),
         sa.Column("workspace_id", PGUUID(as_uuid=True), nullable=False),
         sa.Column("title", sa.Text(), nullable=True),
+        # Rolling summary + watermark (docs/22 §2). No FK on the
+        # watermark: messages FK-references conversations, and a
+        # circular pair would force use_alter for a column that is a
+        # cursor, not a relationship.
+        sa.Column("summary", sa.Text(), nullable=True),
+        sa.Column("summary_through_message_id", PGUUID(as_uuid=True), nullable=True),
         sa.Column("deleted_at", TIMESTAMP(timezone=True), nullable=True),
         sa.Column("created_at", TIMESTAMP(timezone=True), nullable=False),
         sa.Column("updated_at", TIMESTAMP(timezone=True), nullable=False),

@@ -8,7 +8,7 @@ infrastructure/providers; this package never imports a vendor SDK.
 from atlas.ai.breaker import BreakerBoard, CircuitBreaker
 from atlas.ai.cost import DEFAULT_RATES, CostMeter, ModelRates
 from atlas.ai.executor import ExecutionResult, ResilientExecutor
-from atlas.ai.routing import ModelRef, ModelRouter, Profile, Role, RoutePlan
+from atlas.ai.routing import ModelRef, ModelRouter, Profile, Role, RoutePlan, as_routing_profile
 
 __all__ = [
     "DEFAULT_RATES",
@@ -23,4 +23,5 @@ __all__ = [
     "ResilientExecutor",
     "Role",
     "RoutePlan",
+    "as_routing_profile",
 ]

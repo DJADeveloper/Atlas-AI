@@ -33,6 +33,27 @@ class TestConversation:
         with pytest.raises(Conflict):
             conversation.soft_delete()
 
+    def test_fold_summary_advances_watermark_without_touching_recency(self) -> None:
+        conversation = Conversation(workspace_id=uuid7())
+        before = conversation.updated_at
+        first, second = uuid7(), uuid7()
+        conversation.fold_summary("Early turns discussed pricing.", through_message_id=first)
+        assert conversation.summary == "Early turns discussed pricing."
+        assert conversation.summary_through_message_id == first
+        # Folding is background bookkeeping - recency must not reorder.
+        assert conversation.updated_at == before
+        conversation.fold_summary("Merged summary.", through_message_id=second)
+        assert conversation.summary_through_message_id == second
+
+    def test_fold_summary_rejects_stale_watermark_and_blank_text(self) -> None:
+        conversation = Conversation(workspace_id=uuid7())
+        first, second = uuid7(), uuid7()
+        conversation.fold_summary("A summary.", through_message_id=second)
+        with pytest.raises(Conflict):
+            conversation.fold_summary("Going backwards.", through_message_id=first)
+        with pytest.raises(ValidationFailed):
+            conversation.fold_summary("   ", through_message_id=uuid7())
+
 
 class TestMessage:
     def test_user_message_requires_content(self) -> None:
