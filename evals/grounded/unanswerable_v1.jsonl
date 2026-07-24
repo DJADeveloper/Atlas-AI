@@ -1,0 +1,20 @@
+{"id": "u01", "question": "What is the CEO's annual salary?"}
+{"id": "u02", "question": "Which venture firms invested in our Series B?"}
+{"id": "u03", "question": "What was decided at the 2019 board meeting about dividends?"}
+{"id": "u04", "question": "What is the wifi password in the Berlin office?"}
+{"id": "u05", "question": "How many customers churned in February?"}
+{"id": "u06", "question": "What does our Kubernetes cluster autoscaling policy say about GPU nodes?"}
+{"id": "u07", "question": "Which law firm handles our patent filings?"}
+{"id": "u08", "question": "What is the dress code for the annual holiday party?"}
+{"id": "u09", "question": "How much did we spend on Google Ads last quarter?"}
+{"id": "u10", "question": "What is the on-call rotation for the mobile team?"}
+{"id": "u11", "question": "Which building floor is the finance department on?"}
+{"id": "u12", "question": "What discount do employees get on gym memberships?"}
+{"id": "u13", "question": "Who won the internal hackathon last year?"}
+{"id": "u14", "question": "What is our policy on bringing dogs to the office?"}
+{"id": "u15", "question": "How many support tickets did we close last month?"}
+{"id": "u16", "question": "What is the retention bonus schedule for staff engineers?"}
+{"id": "u17", "question": "Which airline is our preferred carrier for business travel?"}
+{"id": "u18", "question": "What SLA do we promise for the mobile push notification service?"}
+{"id": "u19", "question": "When does the office lease in Amsterdam expire?"}
+{"id": "u20", "question": "What are the catering options for team offsites?"}

@@ -1,0 +1,40 @@
+{"id": "a01", "question": "how many vacation days do I get each year", "expect_path": "handbook-pto.md"}
+{"id": "a02", "question": "can I carry unused holiday over into next year", "expect_path": "handbook-pto.md"}
+{"id": "a03", "question": "how much leave do new parents get", "expect_path": "handbook-pto.md"}
+{"id": "a04", "question": "parental leave primary caregiver weeks", "expect_path": "handbook-pto.md"}
+{"id": "a05", "question": "will the company pay me back if I buy a keyboard", "expect_path": "handbook-expenses.md"}
+{"id": "a06", "question": "per-diem international travel receipts", "expect_path": "handbook-expenses.md"}
+{"id": "a07", "question": "what is the deadline for submitting expense receipts", "expect_path": "handbook-expenses.md"}
+{"id": "a08", "question": "spending limit on team lead company cards", "expect_path": "handbook-expenses.md"}
+{"id": "a09", "question": "am I required to come into the office", "expect_path": "handbook-remote.md"}
+{"id": "a10", "question": "home office stipend internet allowance", "expect_path": "handbook-remote.md"}
+{"id": "a11", "question": "what time window must recurring meetings fall into", "expect_path": "handbook-remote.md"}
+{"id": "a12", "question": "my laptop was stolen, what do I do", "expect_path": "handbook-security.md"}
+{"id": "a13", "question": "hardware security keys single sign-on", "expect_path": "handbook-security.md"}
+{"id": "a14", "question": "I received a suspicious email, how do I report it", "expect_path": "handbook-security.md"}
+{"id": "a15", "question": "what happens during my first week at the company", "expect_path": "handbook-onboarding.md"}
+{"id": "a16", "question": "how long does probation last", "expect_path": "handbook-onboarding.md"}
+{"id": "a17", "question": "30-60-90 plan with manager", "expect_path": "handbook-onboarding.md"}
+{"id": "a18", "question": "when are we not allowed to deploy", "expect_path": "eng-deploy.md"}
+{"id": "a19", "question": "Zephyr window hotfix approval", "expect_path": "eng-deploy.md"}
+{"id": "a20", "question": "how quickly can we undo a bad release", "expect_path": "eng-deploy.md"}
+{"id": "a21", "question": "canary rollout traffic percentage", "expect_path": "eng-deploy.md"}
+{"id": "a22", "question": "which incidents wake someone up at night", "expect_path": "eng-incidents.md"}
+{"id": "a23", "question": "first steps when production is on fire", "expect_path": "eng-incidents.md"}
+{"id": "a24", "question": "blameless postmortem deadline days", "expect_path": "eng-incidents.md"}
+{"id": "a25", "question": "do we get extra pay for carrying the pager", "expect_path": "eng-oncall.md"}
+{"id": "a26", "question": "on-call handoff Monday written summary", "expect_path": "eng-oncall.md"}
+{"id": "a27", "question": "what happens to alerts that keep paging for nothing", "expect_path": "eng-oncall.md"}
+{"id": "a28", "question": "which database is our source of truth", "expect_path": "eng-architecture.md"}
+{"id": "a29", "question": "Semaphore feature flag service", "expect_path": "eng-architecture.md"}
+{"id": "a30", "question": "is one service allowed to query another service's tables", "expect_path": "eng-architecture.md"}
+{"id": "a31", "question": "ClickHouse replication lag minutes", "expect_path": "eng-architecture.md"}
+{"id": "a32", "question": "what is our policy on flaky tests", "expect_path": "eng-testing.md"}
+{"id": "a33", "question": "do we enforce a code coverage percentage", "expect_path": "eng-testing.md"}
+{"id": "a34", "question": "golden dataset baseline change process", "expect_path": "eng-testing.md"}
+{"id": "a35", "question": "why do customers complain about our search", "expect_path": "product-orion.md"}
+{"id": "a36", "question": "Orion hybrid retrieval latency budget", "expect_path": "product-orion.md"}
+{"id": "a37", "question": "morning summary of what changed while I was away", "expect_path": "product-atlas-brief.md"}
+{"id": "a38", "question": "Daily Brief email delivery time", "expect_path": "product-atlas-brief.md"}
+{"id": "a39", "question": "how much does the Team plan cost per seat", "expect_path": "product-pricing.md"}
+{"id": "a40", "question": "are we moving to usage based billing", "expect_path": "product-pricing.md"}

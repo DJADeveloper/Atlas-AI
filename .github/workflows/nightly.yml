@@ -60,6 +60,12 @@ jobs:
           cd apps/api
           uv run python scripts/chat_latency.py \
             --provider anthropic --output chat_latency.json
+      - name: Grounded-answer eval (M08; needs ANTHROPIC_API_KEY)
+        if: env.ANTHROPIC_API_KEY != ''
+        run: |
+          cd apps/api
+          uv run python scripts/grounded_eval.py \
+            --chat anthropic --output grounded_eval.json
       - uses: actions/upload-artifact@v7
         with:
           name: ingest-throughput-benchmark
@@ -75,3 +81,8 @@ jobs:
         with:
           name: chat-first-token-latency
           path: apps/api/chat_latency.json
+      - uses: actions/upload-artifact@v7
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          name: grounded-answer-quality
+          path: apps/api/grounded_eval.json
