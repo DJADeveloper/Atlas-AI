@@ -14,9 +14,11 @@
 
 import { expect, test } from "@playwright/test";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const API = "http://localhost:8000";
-const FIXTURES = path.resolve(__dirname, "fixtures/notes");
+// apps/web is `"type": "module"` — no __dirname in ESM scope.
+const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/notes");
 
 test.describe.serial("Atlas UI", () => {
   test("abstention renders a distinct not-found state", async ({ page }) => {

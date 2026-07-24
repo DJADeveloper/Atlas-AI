@@ -144,7 +144,7 @@ jobs:
       - run: pnpm --filter @atlas/web exec playwright test
       - name: Backend logs on failure
         if: failure()
-        run: tail -100 /tmp/api.log /tmp/worker.log
+        run: tail -n 100 /tmp/api.log /tmp/worker.log
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
