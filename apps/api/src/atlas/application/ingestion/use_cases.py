@@ -162,6 +162,23 @@ class DetectChanges:
         return embedded > 0
 
 
+class SourceRootUnreachable(Exception):
+    """A source root this process cannot see at all.
+
+    Distinct from a missing file: every document under the root is
+    equally unreadable, so the fault is where the root lives, not what
+    happened to one file. In compose this means the API wrote uploads to
+    a directory the worker does not mount.
+    """
+
+    def __init__(self, uri: str) -> None:
+        super().__init__(
+            f"source root {uri!r} is not readable from this process — "
+            "if the API and worker run in separate containers, both must "
+            "mount it (ATLAS_UPLOADS_DIR for dropped files)"
+        )
+
+
 def _record_failure(job: IngestionJob, error: Exception) -> IngestOutcome:
     """Shared failure ladder (M04): fail → retry with backoff → dead-letter."""
     reason = (
@@ -257,6 +274,14 @@ class IngestDocument:
 
         raw = self.file_store.read(source.uri, document.path)
         if raw is None:
+            if not self.file_store.exists(source.uri):
+                # The root itself is gone from *this* process's view. That
+                # is a deployment fault (an unshared volume between the API
+                # and the worker, a removed mount), not a deleted file, and
+                # skipping would report it as "nothing to do" — so it fails
+                # visibly, with the cause, and rides the retry ladder in
+                # case the mount comes back.
+                return _record_failure(job, SourceRootUnreachable(source.uri))
             job.skip("file no longer present")
             return IngestOutcome("skipped", detail="file missing")
 

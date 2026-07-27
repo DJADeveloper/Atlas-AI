@@ -187,6 +187,24 @@ class TestRetryLadder:
         assert outcome.result == "skipped"
         assert rig.state.jobs[report.enqueued_job_ids[0]].state == "skipped"
 
+    async def test_unreachable_root_fails_loudly_rather_than_skipping(self, rig: Rig) -> None:
+        """A root this process cannot see at all is a deployment fault —
+        the API and worker not sharing the uploads volume, say. Reporting
+        it as a skip would read as "nothing to do" and hide the cause."""
+        source = rig.with_source()
+        rig.write("a.md", b"# Present at enqueue time")
+        report = await rig.detect.execute(rig.workspace_id, source.id, batch_id="b1")
+        del rig.files.trees[URI]  # the whole root, not one file
+
+        outcome = await rig.ingest.execute(rig.workspace_id, report.enqueued_job_ids[0])
+
+        assert outcome.result == "retry_scheduled"
+        job = rig.state.jobs[report.enqueued_job_ids[0]]
+        assert job.state != "skipped"
+        assert job.error is not None
+        assert "not readable from this process" in job.error
+        assert "ATLAS_UPLOADS_DIR" in job.error
+
 
 class TestRegisterAndReindex:
     async def test_register_scans_immediately(self, rig: Rig) -> None:
