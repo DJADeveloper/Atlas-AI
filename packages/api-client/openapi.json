@@ -1448,6 +1448,10 @@
       "WorkersResponse": {
         "description": "Who is consuming the job queues.\n\n`unconsumed_queues` is the actionable field: work dispatched to a\nqueue in that list waits forever, which is what a job stuck in\n`pending` actually means.",
         "properties": {
+          "checked": {
+            "title": "Checked",
+            "type": "boolean"
+          },
           "online": {
             "title": "Online",
             "type": "boolean"
@@ -1479,6 +1483,7 @@
           }
         },
         "required": [
+          "checked",
           "online",
           "reachable",
           "workers",

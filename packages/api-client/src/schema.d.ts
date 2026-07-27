@@ -910,6 +910,8 @@ export interface components {
          *     `pending` actually means.
          */
         WorkersResponse: {
+            /** Checked */
+            checked: boolean;
             /** Online */
             online: boolean;
             /** Reachable */

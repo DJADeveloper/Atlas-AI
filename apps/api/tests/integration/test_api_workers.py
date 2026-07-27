@@ -39,6 +39,7 @@ async def test_reports_an_idle_fleet_without_hanging(client: httpx.AsyncClient) 
 
     assert response.status_code == 200
     body = response.json()
+    assert body["checked"] is True
     assert body["online"] is False
     assert body["reachable"] is True
     assert body["workers"] == []

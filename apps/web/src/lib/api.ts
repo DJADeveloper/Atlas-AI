@@ -33,7 +33,9 @@ export interface WorkerHealth {
  */
 export async function fetchWorkerHealth(): Promise<WorkerHealth | null> {
   const { data } = await api.GET("/api/v1/system/workers");
-  if (!data) {
+  // `checked: false` means the fleet has not been reached yet — an
+  // unknown answer, which must never be shown as "nothing is running".
+  if (!data || !data.checked) {
     return null;
   }
   return {

@@ -12,7 +12,10 @@ import { useEffect, useState } from "react";
 import { fetchWorkerHealth } from "@/lib/api";
 import type { WorkerHealth } from "@/lib/api";
 
-const POLL_MS = 10_000;
+// The answer is cached server-side and changes only when someone starts
+// or stops a worker; polling harder buys nothing and costs a request on
+// every screen.
+const POLL_MS = 30_000;
 
 const WORKER_COMMAND =
   "uv run celery -A atlas.infrastructure.jobs.worker worker --loglevel INFO " +
@@ -23,12 +26,25 @@ export function WorkerBanner() {
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
+
     async function poll() {
-      const next = await fetchWorkerHealth();
-      if (active) {
-        setHealth(next);
+      // A background tab has nobody to tell, and overlapping requests
+      // would queue behind each other on a slow answer.
+      if (inFlight || document.visibilityState === "hidden") {
+        return;
+      }
+      inFlight = true;
+      try {
+        const next = await fetchWorkerHealth();
+        if (active) {
+          setHealth(next);
+        }
+      } finally {
+        inFlight = false;
       }
     }
+
     void poll();
     const timer = setInterval(() => void poll(), POLL_MS);
     return () => {

@@ -59,6 +59,7 @@ class WorkersResponse(BaseModel):
     `pending` actually means.
     """
 
+    checked: bool
     online: bool
     reachable: bool
     workers: list[WorkerView]
@@ -89,6 +90,7 @@ async def workers(
     """Report the worker fleet so a stalled queue can be seen, not guessed."""
     fleet = await container.worker_probe.snapshot()
     return WorkersResponse(
+        checked=fleet.known,
         online=fleet.online,
         reachable=fleet.reachable,
         workers=[WorkerView(name=w.name, queues=list(w.queues)) for w in fleet.workers],
