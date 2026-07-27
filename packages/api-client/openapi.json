@@ -1,6 +1,23 @@
 {
   "components": {
     "schemas": {
+      "Body_upload_files_api_v1_sources_uploads_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "contentMediaType": "application/octet-stream",
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "Body_upload_files_api_v1_sources_uploads_post",
+        "type": "object"
+      },
       "ChunkView": {
         "properties": {
           "heading_path": {
@@ -958,6 +975,24 @@
         "title": "ReindexResponse",
         "type": "object"
       },
+      "RejectedFileView": {
+        "properties": {
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "reason"
+        ],
+        "title": "RejectedFileView",
+        "type": "object"
+      },
       "ReviseMemoryBody": {
         "properties": {
           "content": {
@@ -1243,6 +1278,49 @@
           "created_at"
         ],
         "title": "SourceView",
+        "type": "object"
+      },
+      "UploadResponse": {
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "enqueued": {
+            "title": "Enqueued",
+            "type": "integer"
+          },
+          "rejected": {
+            "items": {
+              "$ref": "#/components/schemas/RejectedFileView"
+            },
+            "title": "Rejected",
+            "type": "array"
+          },
+          "skipped_unchanged": {
+            "title": "Skipped Unchanged",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SourceView"
+          },
+          "stored": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stored",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source",
+          "batch_id",
+          "stored",
+          "rejected",
+          "enqueued",
+          "skipped_unchanged"
+        ],
+        "title": "UploadResponse",
         "type": "object"
       },
       "UsageView": {
@@ -2215,6 +2293,48 @@
           }
         },
         "summary": "Register Source",
+        "tags": [
+          "sources"
+        ]
+      }
+    },
+    "/api/v1/sources/uploads": {
+      "post": {
+        "description": "Store dropped files in the managed source and index them.",
+        "operationId": "upload_files_api_v1_sources_uploads_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_files_api_v1_sources_uploads_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Files",
         "tags": [
           "sources"
         ]

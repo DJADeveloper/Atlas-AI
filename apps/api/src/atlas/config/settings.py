@@ -41,6 +41,12 @@ class Settings(BaseSettings):
     embedding_batch_size: int = 32
     embedding_concurrency: int = 2
 
+    # Where files dropped into the UI are stored. Atlas owns this
+    # directory (it is the only writable source root); watched folders
+    # stay read-only. One subdirectory per workspace keeps the isolation
+    # promise on disk as well as in the database.
+    uploads_dir: str = "~/.atlas/uploads"
+
     # Retrieval (M06). ef_search is the recall/latency knob (docs/41 §8);
     # raise it if golden-set recall misses on laptop-class hardware.
     hnsw_ef_search: int = 40

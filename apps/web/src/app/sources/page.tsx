@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { StatusBadge, toneForState } from "@atlas/ui";
 
+import { DropZone } from "@/components/drop-zone";
 import { api } from "@/lib/api";
 
 interface SourceView {
@@ -67,6 +68,12 @@ export default function SourcesPage() {
   return (
     <section data-testid="sources-screen">
       <h1 className="mb-4 text-xl font-semibold">Sources</h1>
+
+      <DropZone onIndexed={() => void refresh()} />
+
+      <p className="mb-2 text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        Or watch a folder already on this machine
+      </p>
       <form
         className="mb-6 flex flex-wrap items-end gap-2"
         onSubmit={(event) => {

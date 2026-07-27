@@ -10,6 +10,8 @@
  *    source viewer opens with the cited chunk highlighted.
  * 5. Dark and light themes both render the chat screen (visual smoke;
  *    pixel-diff baselines join when a human blesses them).
+ * 6. Dropping a file indexes it into the managed source and the answer
+ *    cites it — no filesystem path typed anywhere.
  *
  * Ordering: declaration order with workers=1 (not describe.serial —
  * serial retries re-run the whole chain against already-mutated backend
@@ -22,7 +24,9 @@ import { fileURLToPath } from "node:url";
 
 const API = "http://localhost:8000";
 // apps/web is `"type": "module"` — no __dirname in ESM scope.
-const FIXTURES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/notes");
+const E2E_DIR = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURES = path.resolve(E2E_DIR, "fixtures/notes");
+const UPLOAD_FIXTURE = path.resolve(E2E_DIR, "fixtures/uploads/handbook.md");
 
 test.describe("Atlas UI", () => {
   test("abstention renders a distinct not-found state", async ({ page }) => {
@@ -100,5 +104,30 @@ test.describe("Atlas UI", () => {
     const dark = await page.screenshot({ fullPage: true });
     expect(dark.byteLength).toBeGreaterThan(0);
     expect(Buffer.compare(light, dark)).not.toBe(0); // themes visibly differ
+  });
+
+  test("a dropped file is indexed and cited, with no path typed", async ({ page }) => {
+    await page.goto("/sources");
+    await page.getByTestId("drop-input").setInputFiles(UPLOAD_FIXTURE);
+
+    await expect(page.getByTestId("upload-result")).toContainText("handbook.md");
+    await expect(page.getByTestId("source-list")).toContainText("Dropped files");
+
+    // Indexing has settled once nothing is pending or running.
+    await page.goto("/jobs");
+    const jobs = page.getByTestId("jobs-list");
+    await expect(jobs).not.toContainText("pending", { timeout: 30_000 });
+    await expect(jobs).not.toContainText("running", { timeout: 30_000 });
+
+    await page.goto("/");
+    await page.getByTestId("new-conversation").click();
+    await page.getByTestId("chat-input").fill("When is the probation review?");
+    await page.getByTestId("chat-send").click();
+
+    // Grounded, not abstained: the uploaded file reached the index.
+    await expect(page.getByTestId("assistant-message")).toContainText("Based on", {
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId("citation-chip-1")).toBeVisible({ timeout: 15_000 });
   });
 });

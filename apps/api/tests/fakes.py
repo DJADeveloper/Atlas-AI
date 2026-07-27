@@ -35,7 +35,7 @@ from atlas.domain.knowledge.files import FileStat
 from atlas.domain.knowledge.values import IngestionState
 from atlas.domain.memory.entities import Memory, MemoryKind
 from atlas.infrastructure.streams import BufferedEvent
-from atlas.shared.errors import NotFound
+from atlas.shared.errors import NotFound, ValidationFailed
 
 
 @dataclass
@@ -575,6 +575,14 @@ class FakeFileStore:
 
     def read(self, source_uri: str, relative_path: str) -> bytes | None:
         return self.trees.get(source_uri, {}).get(relative_path)
+
+    def ensure_root(self, source_uri: str) -> None:
+        self.trees.setdefault(source_uri, {})
+
+    def write(self, source_uri: str, relative_path: str, data: bytes) -> None:
+        if "/" in relative_path or "\\" in relative_path:
+            raise ValidationFailed(f"refusing a non-flat path: {relative_path}")
+        self.trees.setdefault(source_uri, {})[relative_path] = data
 
 
 class FakeDispatcher:

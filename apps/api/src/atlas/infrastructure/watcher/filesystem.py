@@ -7,10 +7,13 @@ Hashes stream in chunks so large files never sit in memory twice.
 """
 
 import hashlib
+import os
 from fnmatch import fnmatch
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from atlas.domain.knowledge.files import FileStat
+from atlas.shared.errors import ValidationFailed
 
 _CHUNK = 1024 * 1024
 
@@ -78,3 +81,27 @@ class LocalFileStore:
             return path.read_bytes()
         except OSError:
             return None
+
+    def ensure_root(self, source_uri: str) -> None:
+        self._root(source_uri).mkdir(parents=True, exist_ok=True)
+
+    def write(self, source_uri: str, relative_path: str, data: bytes) -> None:
+        path = self._safe_path(source_uri, relative_path)
+        if path is None:
+            raise ValidationFailed(f"refusing to write outside the source root: {relative_path}")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Write-then-rename, deliberately: the watcher may be scanning
+        # this root, and a partially written file must never be hashed
+        # into a document version. os.replace is atomic within a
+        # filesystem, and the temp file is created in the destination
+        # directory to keep it one.
+        with NamedTemporaryFile(dir=path.parent, prefix=".atlas-upload-", delete=False) as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+            staged = Path(handle.name)
+        try:
+            staged.replace(path)
+        except OSError:
+            staged.unlink(missing_ok=True)
+            raise

@@ -19,6 +19,26 @@ class FileStat:
     size_bytes: int
 
 
+class SourceFileWriter(Protocol):
+    """Write side of a source root that Atlas itself owns.
+
+    A watched folder belongs to the user and is read-only by contract,
+    so writing is a separate, narrower capability rather than more
+    methods on SourceFileStore: only a managed root (the uploads
+    directory) is ever handed to an implementation of this port. The
+    same path-safety rules apply — a relative path that escapes the
+    root must be refused, not written.
+    """
+
+    def ensure_root(self, source_uri: str) -> None:
+        """Create the managed root if it does not exist yet."""
+        ...
+
+    def write(self, source_uri: str, relative_path: str, data: bytes) -> None:
+        """Place one file under the root, replacing any namesake."""
+        ...
+
+
 class SourceFileStore(Protocol):
     def exists(self, source_uri: str) -> bool:
         """Whether the source root exists and is readable."""

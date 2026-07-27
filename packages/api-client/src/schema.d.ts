@@ -248,6 +248,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sources/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Files
+         * @description Store dropped files in the managed source and index them.
+         */
+        post: operations["upload_files_api_v1_sources_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sources/{source_id}": {
         parameters: {
             query?: never;
@@ -333,6 +353,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Body_upload_files_api_v1_sources_uploads_post */
+        Body_upload_files_api_v1_sources_uploads_post: {
+            /** Files */
+            files: string[];
+        };
         /** ChunkView */
         ChunkView: {
             /** Heading Path */
@@ -690,6 +715,13 @@ export interface components {
             /** Skipped Unchanged */
             skipped_unchanged: number;
         };
+        /** RejectedFileView */
+        RejectedFileView: {
+            /** Filename */
+            filename: string;
+            /** Reason */
+            reason: string;
+        };
         /** ReviseMemoryBody */
         ReviseMemoryBody: {
             /** Content */
@@ -801,6 +833,20 @@ export interface components {
             status: string;
             /** Uri */
             uri: string;
+        };
+        /** UploadResponse */
+        UploadResponse: {
+            /** Batch Id */
+            batch_id: string;
+            /** Enqueued */
+            enqueued: number;
+            /** Rejected */
+            rejected: components["schemas"]["RejectedFileView"][];
+            /** Skipped Unchanged */
+            skipped_unchanged: number;
+            source: components["schemas"]["SourceView"];
+            /** Stored */
+            stored: string[];
         };
         /** UsageView */
         UsageView: {
@@ -1427,6 +1473,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RegisterSourceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_files_api_v1_sources_uploads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_files_api_v1_sources_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadResponse"];
                 };
             };
             /** @description Validation Error */

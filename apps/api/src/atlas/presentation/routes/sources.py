@@ -4,10 +4,16 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, File, UploadFile, status
 from pydantic import BaseModel, Field
 
-from atlas.application.ingestion import DetectChanges, RegisterSource, ReindexSource
+from atlas.application.ingestion import (
+    DetectChanges,
+    IncomingFile,
+    RegisterSource,
+    ReindexSource,
+    UploadFiles,
+)
 from atlas.domain.knowledge.entities import Source
 from atlas.domain.knowledge.values import SourceStatus
 from atlas.presentation.composition import Container
@@ -68,6 +74,20 @@ class ReindexResponse(BaseModel):
     deduplicated: int
 
 
+class RejectedFileView(BaseModel):
+    filename: str
+    reason: str
+
+
+class UploadResponse(BaseModel):
+    source: SourceView
+    batch_id: str
+    stored: list[str]
+    rejected: list[RejectedFileView]
+    enqueued: int
+    skipped_unchanged: int
+
+
 def _detect(container: Container) -> DetectChanges:
     return DetectChanges(
         uow_factory=container.unit_of_work,
@@ -101,6 +121,37 @@ async def register_source(
         source=SourceView.from_entity(source),
         batch_id=report.batch_id,
         enqueued=len(report.enqueued_job_ids),
+        skipped_unchanged=report.skipped_unchanged,
+    )
+
+
+@router.post("/uploads", status_code=status.HTTP_201_CREATED)
+async def upload_files(
+    container: Annotated[Container, Depends(get_container)],
+    workspace_id: Annotated[UUID, Depends(get_workspace_id)],
+    batch_id: Annotated[str, Depends(current_batch_id)],
+    files: Annotated[list[UploadFile], File()],
+) -> UploadResponse:
+    """Store dropped files in the managed source and index them."""
+    use_case = UploadFiles(
+        uow_factory=container.unit_of_work,
+        file_writer=container.file_store,
+        detect_changes=_detect(container),
+        supports=container.parser_registry.supports,
+        uploads_root=container.settings.uploads_dir,
+    )
+    incoming = [
+        IncomingFile(filename=upload.filename or "", data=await upload.read()) for upload in files
+    ]
+    report = await use_case.execute(workspace_id, files=incoming, batch_id=batch_id)
+    return UploadResponse(
+        source=SourceView.from_entity(report.source),
+        batch_id=report.batch_id,
+        stored=list(report.stored),
+        rejected=[
+            RejectedFileView(filename=item.filename, reason=item.reason) for item in report.rejected
+        ],
+        enqueued=report.enqueued,
         skipped_unchanged=report.skipped_unchanged,
     )
 
