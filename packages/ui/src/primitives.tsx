@@ -1,5 +1,6 @@
 /**
- * Shared UI primitives (M09): chip, stream cursor, status badge.
+ * Shared UI primitives (M09): chip, stream cursor, status badge,
+ * skeleton, progress bar.
  *
  * Tailwind utility classes over design tokens; dark mode via the
  * `dark:` variant (class strategy, toggled on <html>). Deliberately
@@ -41,6 +42,60 @@ export function StreamCursor({ testId = "stream-cursor" }: { testId?: string }) 
       className="ml-0.5 inline-block h-4 w-2 animate-pulse bg-zinc-500 align-text-bottom dark:bg-zinc-300"
       aria-hidden="true"
     />
+  );
+}
+
+/**
+ * Placeholder for content that is still loading. An empty table and a
+ * loading table look identical otherwise, which reads as "broken" —
+ * every list renders this until its first response lands.
+ */
+export function Skeleton({
+  rows = 3,
+  testId = "skeleton",
+}: {
+  rows?: number;
+  testId?: string;
+}) {
+  return (
+    <div data-testid={testId} aria-busy="true" aria-live="polite" className="space-y-2">
+      <span className="sr-only">Loading…</span>
+      {Array.from({ length: rows }, (_, index) => (
+        <div
+          key={index}
+          className="h-8 animate-pulse rounded bg-zinc-100 dark:bg-zinc-800"
+          aria-hidden="true"
+        />
+      ))}
+    </div>
+  );
+}
+
+/** Determinate progress for work with a known denominator. */
+export function ProgressBar({
+  done,
+  total,
+  testId = "progress-bar",
+}: {
+  done: number;
+  total: number;
+  testId?: string;
+}) {
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+  return (
+    <div
+      data-testid={testId}
+      role="progressbar"
+      aria-valuenow={done}
+      aria-valuemin={0}
+      aria-valuemax={total}
+      className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800"
+    >
+      <div
+        className="h-full rounded-full bg-sky-600 transition-all duration-500 dark:bg-sky-500"
+        style={{ width: `${percent}%` }}
+      />
+    </div>
   );
 }
 

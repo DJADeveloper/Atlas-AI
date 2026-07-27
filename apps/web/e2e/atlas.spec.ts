@@ -111,13 +111,14 @@ test.describe("Atlas UI", () => {
     await page.getByTestId("drop-input").setInputFiles(UPLOAD_FIXTURE);
 
     await expect(page.getByTestId("upload-result")).toContainText("handbook.md");
+    // The drop zone follows the batch to a terminal state itself.
+    await expect(page.getByTestId("upload-progress")).toContainText("Indexed 1 file", {
+      timeout: 60_000,
+    });
     await expect(page.getByTestId("source-list")).toContainText("Dropped files");
 
-    // Indexing has settled once nothing is pending or running.
-    await page.goto("/jobs");
-    const jobs = page.getByTestId("jobs-list");
-    await expect(jobs).not.toContainText("pending", { timeout: 30_000 });
-    await expect(jobs).not.toContainText("running", { timeout: 30_000 });
+    // The fleet probe has answered by now; a healthy fleet stays quiet.
+    await expect(page.getByTestId("worker-banner")).toHaveCount(0);
 
     await page.goto("/");
     await page.getByTestId("new-conversation").click();

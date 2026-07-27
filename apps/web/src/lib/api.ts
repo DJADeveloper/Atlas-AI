@@ -13,10 +13,34 @@ export const API_BASE_URL =
 export const api = createAtlasClient({ baseUrl: API_BASE_URL });
 
 export interface UploadOutcome {
+  batchId: string | null;
   stored: string[];
   rejected: { filename: string; reason: string }[];
   enqueued: number;
   error: string | null;
+}
+
+export interface WorkerHealth {
+  online: boolean;
+  reachable: boolean;
+  unconsumedQueues: string[];
+}
+
+/**
+ * Whether anything is consuming the job queues. A job stuck in
+ * `pending` means its queue has no consumer, which is invisible from
+ * the job row alone — this is what turns that into a stated cause.
+ */
+export async function fetchWorkerHealth(): Promise<WorkerHealth | null> {
+  const { data } = await api.GET("/api/v1/system/workers");
+  if (!data) {
+    return null;
+  }
+  return {
+    online: data.online,
+    reachable: data.reachable,
+    unconsumedQueues: data.unconsumed_queues,
+  };
 }
 
 /**
@@ -37,6 +61,7 @@ export async function uploadFiles(files: File[]): Promise<UploadOutcome> {
   if (!data) {
     const problem = error as unknown as { detail?: unknown } | undefined;
     return {
+      batchId: null,
       stored: [],
       rejected: [],
       enqueued: 0,
@@ -44,6 +69,7 @@ export async function uploadFiles(files: File[]): Promise<UploadOutcome> {
     };
   }
   return {
+    batchId: data.batch_id,
     stored: data.stored,
     rejected: data.rejected,
     enqueued: data.enqueued,

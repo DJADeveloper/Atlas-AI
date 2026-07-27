@@ -1423,6 +1423,70 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WorkerView": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "queues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Queues",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "queues"
+        ],
+        "title": "WorkerView",
+        "type": "object"
+      },
+      "WorkersResponse": {
+        "description": "Who is consuming the job queues.\n\n`unconsumed_queues` is the actionable field: work dispatched to a\nqueue in that list waits forever, which is what a job stuck in\n`pending` actually means.",
+        "properties": {
+          "online": {
+            "title": "Online",
+            "type": "boolean"
+          },
+          "reachable": {
+            "title": "Reachable",
+            "type": "boolean"
+          },
+          "required_queues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Required Queues",
+            "type": "array"
+          },
+          "unconsumed_queues": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unconsumed Queues",
+            "type": "array"
+          },
+          "workers": {
+            "items": {
+              "$ref": "#/components/schemas/WorkerView"
+            },
+            "title": "Workers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "online",
+          "reachable",
+          "workers",
+          "required_queues",
+          "unconsumed_queues"
+        ],
+        "title": "WorkersResponse",
+        "type": "object"
       }
     }
   },
@@ -2467,6 +2531,28 @@
         "summary": "Reindex Source",
         "tags": [
           "sources"
+        ]
+      }
+    },
+    "/api/v1/system/workers": {
+      "get": {
+        "description": "Report the worker fleet so a stalled queue can be seen, not guessed.",
+        "operationId": "workers_api_v1_system_workers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Workers",
+        "tags": [
+          "system"
         ]
       }
     },

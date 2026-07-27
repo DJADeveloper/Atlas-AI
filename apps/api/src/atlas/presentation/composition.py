@@ -42,6 +42,7 @@ from atlas.config.settings import Settings
 from atlas.domain.ai.provider import LLMProvider
 from atlas.infrastructure.jobs.celery_app import create_celery_app
 from atlas.infrastructure.jobs.dispatcher import CeleryChatDispatcher, CeleryIngestionDispatcher
+from atlas.infrastructure.jobs.probe import CeleryWorkerProbe
 from atlas.infrastructure.parsing import ParserRegistry, default_registry
 from atlas.infrastructure.persistence.feature_flags import SqlFlagOverridesReader
 from atlas.infrastructure.persistence.prompts import SqlPromptRegistry
@@ -65,6 +66,7 @@ class Container:
     redis: Redis
     dispatcher: CeleryIngestionDispatcher
     chat_dispatcher: CeleryChatDispatcher
+    worker_probe: CeleryWorkerProbe
     file_store: LocalFileStore
     parser_registry: ParserRegistry
     embedding_provider: OllamaEmbeddingProvider | HashEmbeddingProvider
@@ -156,6 +158,7 @@ def build_container(settings: Settings) -> Container:
         redis=redis,
         dispatcher=CeleryIngestionDispatcher(celery),
         chat_dispatcher=CeleryChatDispatcher(celery),
+        worker_probe=CeleryWorkerProbe(celery),
         file_store=LocalFileStore(),
         parser_registry=default_registry(),
         embedding_provider=(

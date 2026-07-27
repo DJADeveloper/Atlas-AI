@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from atlas.config.profiles import Profile
 from atlas.config.settings import Settings
+from atlas.infrastructure.jobs.probe import REQUIRED_QUEUES
 from atlas.infrastructure.persistence.migrations import database_revision, head_revision
 from atlas.presentation.composition import Container
 from atlas.presentation.dependencies import get_container
@@ -45,6 +46,26 @@ class ReadinessResponse(BaseModel):
     checks: dict[str, CheckStatus]
 
 
+class WorkerView(BaseModel):
+    name: str
+    queues: list[str]
+
+
+class WorkersResponse(BaseModel):
+    """Who is consuming the job queues.
+
+    `unconsumed_queues` is the actionable field: work dispatched to a
+    queue in that list waits forever, which is what a job stuck in
+    `pending` actually means.
+    """
+
+    online: bool
+    reachable: bool
+    workers: list[WorkerView]
+    required_queues: list[str]
+    unconsumed_queues: list[str]
+
+
 @router.get("/health")
 async def health(request: Request) -> HealthResponse:
     """Liveness probe — no dependencies are touched.
@@ -58,6 +79,21 @@ async def health(request: Request) -> HealthResponse:
         status="ok",
         version=get_version(),
         profile=override if override is not None else settings.profile,
+    )
+
+
+@router.get("/api/v1/system/workers")
+async def workers(
+    container: Annotated[Container, Depends(get_container)],
+) -> WorkersResponse:
+    """Report the worker fleet so a stalled queue can be seen, not guessed."""
+    fleet = await container.worker_probe.snapshot()
+    return WorkersResponse(
+        online=fleet.online,
+        reachable=fleet.reachable,
+        workers=[WorkerView(name=w.name, queues=list(w.queues)) for w in fleet.workers],
+        required_queues=list(REQUIRED_QUEUES),
+        unconsumed_queues=list(fleet.unconsumed_queues),
     )
 
 

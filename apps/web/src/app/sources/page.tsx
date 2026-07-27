@@ -4,9 +4,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { StatusBadge, toneForState } from "@atlas/ui";
+import { Skeleton, StatusBadge, toneForState } from "@atlas/ui";
 
 import { DropZone } from "@/components/drop-zone";
+import { WorkerBanner } from "@/components/worker-banner";
 import { api } from "@/lib/api";
 
 interface SourceView {
@@ -17,7 +18,7 @@ interface SourceView {
 }
 
 export default function SourcesPage() {
-  const [sources, setSources] = useState<SourceView[]>([]);
+  const [sources, setSources] = useState<SourceView[] | null>(null);
   const [name, setName] = useState("");
   const [uri, setUri] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +70,8 @@ export default function SourcesPage() {
     <section data-testid="sources-screen">
       <h1 className="mb-4 text-xl font-semibold">Sources</h1>
 
+      <WorkerBanner />
+
       <DropZone onIndexed={() => void refresh()} />
 
       <p className="mb-2 text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -111,26 +114,35 @@ export default function SourcesPage() {
       {error !== null && (
         <p className="mb-4 text-sm text-red-700 dark:text-red-300">{error}</p>
       )}
-      <ul className="divide-y divide-zinc-200 dark:divide-zinc-800" data-testid="source-list">
-        {sources.map((source) => (
-          <li key={source.id} className="flex items-center justify-between py-3 text-sm">
-            <div>
-              <p className="font-medium">{source.name}</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">{source.uri}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <StatusBadge label={source.status} tone={toneForState(source.status)} />
-              <button
-                type="button"
-                onClick={() => void reindex(source.id)}
-                className="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-              >
-                Reindex
-              </button>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {sources === null ? (
+        <Skeleton rows={2} testId="sources-skeleton" />
+      ) : (
+        <ul className="divide-y divide-zinc-200 dark:divide-zinc-800" data-testid="source-list">
+          {sources.length === 0 && (
+            <li className="py-3 text-sm text-zinc-500 dark:text-zinc-400">
+              Nothing indexed yet — drop a file above to get started.
+            </li>
+          )}
+          {sources.map((source) => (
+            <li key={source.id} className="flex items-center justify-between py-3 text-sm">
+              <div>
+                <p className="font-medium">{source.name}</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">{source.uri}</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <StatusBadge label={source.status} tone={toneForState(source.status)} />
+                <button
+                  type="button"
+                  onClick={() => void reindex(source.id)}
+                  className="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  Reindex
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

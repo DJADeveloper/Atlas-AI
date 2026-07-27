@@ -303,6 +303,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/system/workers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Workers
+         * @description Report the worker fleet so a stalled queue can be seen, not guessed.
+         */
+        get: operations["workers_api_v1_system_workers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -873,6 +893,33 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /** WorkerView */
+        WorkerView: {
+            /** Name */
+            name: string;
+            /** Queues */
+            queues: string[];
+        };
+        /**
+         * WorkersResponse
+         * @description Who is consuming the job queues.
+         *
+         *     `unconsumed_queues` is the actionable field: work dispatched to a
+         *     queue in that list waits forever, which is what a job stuck in
+         *     `pending` actually means.
+         */
+        WorkersResponse: {
+            /** Online */
+            online: boolean;
+            /** Reachable */
+            reachable: boolean;
+            /** Required Queues */
+            required_queues: string[];
+            /** Unconsumed Queues */
+            unconsumed_queues: string[];
+            /** Workers */
+            workers: components["schemas"]["WorkerView"][];
         };
     };
     responses: never;
@@ -1610,6 +1657,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    workers_api_v1_system_workers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkersResponse"];
                 };
             };
         };
